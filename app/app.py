@@ -80,15 +80,20 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(ErrorHandlingMiddleware)
 
-@app.post("/upload_pdf/")
-async def upload_pdf(file: UploadFile = File(...)):
+@app.post("/upload_and_process_pdf/")
+async def upload_and_process_pdf(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    ocr: bool = True
+):
     try:
-        # 生成唯一任务ID
+        # 上传文件
         task_id = str(uuid.uuid4())
-        
-        # 创建任务目录
         task_dir = f"/data/uploads/{task_id}"
+        output_dir = f"/data/results/{task_id}"
         os.makedirs(task_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(f"{output_dir}/images", exist_ok=True)
         
         # 保存文件
         file_path = os.path.join(task_dir, file.filename)
@@ -102,20 +107,30 @@ async def upload_pdf(file: UploadFile = File(...)):
         
         # 记录任务
         task_results[task_id] = TaskResult()
-        task_results[task_id].status = "uploaded"
+        task_results[task_id].status = "processing"
         task_results[task_id].filename = file.filename
         task_results[task_id].file_path = file_path
         
+        # 在后台处理PDF
+        background_tasks.add_task(
+            process_pdf_background, 
+            task_id, 
+            file_path, 
+            output_dir, 
+            ocr,
+            file.filename
+        )
+        
         return {
             "task_id": task_id,
-            "status": "uploaded",
-            "message": "File uploaded successfully"
+            "status": "processing",
+            "message": "PDF uploaded and processing started"
         }
     except Exception as e:
-        logger.error(f"Error uploading PDF: {str(e)}", exc_info=True)
+        logger.error(f"Error uploading and processing PDF: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error uploading PDF: {str(e)}"
+            detail=f"Error uploading and processing PDF: {str(e)}"
         )
 
 @app.post("/process_task/{task_id}")
@@ -498,3 +513,171 @@ async def cleanup_old_tasks():
             await asyncio.sleep(3600)  # 每小时清理一次
         except Exception as e:
             logger.error(f"Error in cleanup: {str(e)}")
+
+@app.post("/process_pdf_and_return/")
+async def process_pdf_and_return(
+    file: UploadFile = File(...),
+    ocr: bool = True
+):
+    task_id = None
+    try:
+        # 1. 上传文件
+        task_id = str(uuid.uuid4())
+        task_dir = f"/data/uploads/{task_id}"
+        output_dir = f"/data/results/{task_id}"
+        os.makedirs(task_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(f"{output_dir}/images", exist_ok=True)
+        
+        # 保存文件
+        file_path = os.path.join(task_dir, file.filename)
+        with open(file_path, "wb") as buffer:
+            chunk_size = 4 * 1024 * 1024
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                buffer.write(chunk)
+        
+        logger.info(f"File uploaded: {file.filename}, task_id: {task_id}")
+        
+        # 2. 处理PDF (同步处理，不使用后台任务)
+        logger.info(f"Processing PDF: {file_path} with OCR={ocr}")
+        
+        # 创建Python脚本
+        script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
+        with open(script_path, "w") as f:
+            f.write(f"""
+import os
+from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
+from magic_pdf.data.dataset import PymuDocDataset
+from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+from magic_pdf.config.enums import SupportedPdfParseMethod
+
+# args
+pdf_file_name = "{file_path}"
+name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
+
+# prepare env
+local_image_dir, local_md_dir = "{output_dir}/images", "{output_dir}"
+os.makedirs(local_image_dir, exist_ok=True)
+os.makedirs(local_md_dir, exist_ok=True)
+
+# init dataset
+dataset = PymuDocDataset(
+    data_reader=FileBasedDataReader(),
+    data_writer=FileBasedDataWriter(
+        image_dir=local_image_dir,
+        md_dir=local_md_dir,
+    ),
+)
+
+# analyze
+doc_analyze(
+    dataset=dataset,
+    pdf_file_name=pdf_file_name,
+    ocr={"ocr": {ocr}},
+    parse_method=SupportedPdfParseMethod.PYMUPDF,
+)
+""")
+        
+        # 执行脚本
+        start_time = datetime.now()
+        result = subprocess.run(
+            ["python", script_path],
+            capture_output=True,
+            text=True,
+            timeout=PROCESS_TIMEOUT
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Error processing PDF: {result.stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing PDF: {result.stderr}"
+            )
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"PDF processed in {processing_time} seconds")
+        
+        # 3. 读取结果
+        base_name = os.path.splitext(file.filename)[0]
+        
+        # 读取Markdown
+        markdown_path = os.path.join(output_dir, f"{base_name}.md")
+        if not os.path.exists(markdown_path):
+            raise HTTPException(
+                status_code=500,
+                detail="Markdown file not generated"
+            )
+        
+        with open(markdown_path, 'r', encoding='utf-8') as f:
+            markdown_content = f.read()
+        
+        # 读取内容列表
+        content_list_path = os.path.join(output_dir, f"{base_name}_content_list.json")
+        if not os.path.exists(content_list_path):
+            raise HTTPException(
+                status_code=500,
+                detail="Content list file not generated"
+            )
+        
+        with open(content_list_path, 'r', encoding='utf-8') as f:
+            content_list = f.read()
+        
+        # 读取中间JSON
+        middle_json_path = os.path.join(output_dir, f"{base_name}_middle.json")
+        if not os.path.exists(middle_json_path):
+            raise HTTPException(
+                status_code=500,
+                detail="Middle JSON file not generated"
+            )
+        
+        with open(middle_json_path, 'r', encoding='utf-8') as f:
+            middle_json = f.read()
+        
+        # 4. 返回结果
+        response = {
+            "status": "completed",
+            "processing_time": processing_time,
+            "markdown": markdown_content,
+            "content_list": content_list,
+            "middle_json": middle_json
+        }
+        
+        return JSONResponse(content=response)
+        
+    except subprocess.TimeoutExpired:
+        logger.error(f"PDF processing timeout after {PROCESS_TIMEOUT} seconds")
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF processing timeout after {PROCESS_TIMEOUT} seconds"
+        )
+    except Exception as e:
+        logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing PDF: {str(e)}"
+        )
+    finally:
+        # 5. 清理临时文件
+        if task_id:
+            try:
+                # 删除上传目录
+                upload_dir = f"/data/uploads/{task_id}"
+                if os.path.exists(upload_dir):
+                    shutil.rmtree(upload_dir, ignore_errors=True)
+                
+                # 删除处理脚本
+                script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
+                if os.path.exists(script_path):
+                    os.remove(script_path)
+                
+                # 删除结果目录
+                result_dir = f"/data/results/{task_id}"
+                if os.path.exists(result_dir):
+                    shutil.rmtree(result_dir, ignore_errors=True)
+                
+                logger.info(f"Temporary files cleaned up for task {task_id}")
+            except Exception as e:
+                logger.error(f"Error cleaning up temporary files: {str(e)}")
