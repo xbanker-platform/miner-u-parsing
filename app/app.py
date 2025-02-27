@@ -565,22 +565,27 @@ image_dir = "images"
 os.makedirs(local_image_dir, exist_ok=True)
 os.makedirs(local_md_dir, exist_ok=True)
 
-# init dataset
-dataset = PymuDocDataset(
-    data_reader=FileBasedDataReader(),
-    data_writer=FileBasedDataWriter(
-        image_dir=local_image_dir,
-        md_dir=local_md_dir,
-    ),
-)
+# 根据错误信息修改，使用正确的构造函数参数
+image_writer = FileBasedDataWriter(local_image_dir)
+md_writer = FileBasedDataWriter(local_md_dir)
 
-# analyze
-doc_analyze(
-    dataset=dataset,
-    pdf_file_name=pdf_file_name,
-    ocr={},
-    parse_method=SupportedPdfParseMethod.PYMUPDF,
-)
+# read bytes
+reader = FileBasedDataReader("")
+pdf_bytes = reader.read(pdf_file_name)  # read the pdf content
+
+# proc
+## Create Dataset Instance
+ds = PymuDocDataset(pdf_bytes)
+
+## inference
+if ds.classify() == SupportedPdfParseMethod.OCR or {ocr}:
+    ds.apply(doc_analyze, ocr=True).pipe_ocr_mode(image_writer).dump_md(
+        md_writer, f"{{name_without_suff}}.md", image_dir
+    )
+else:
+    ds.apply(doc_analyze, ocr=False).pipe_txt_mode(image_writer).dump_md(
+        md_writer, f"{{name_without_suff}}.md", image_dir
+    )
 """.format(file_path, output_dir, output_dir, "True" if ocr else "False"))
         
         # 执行脚本
