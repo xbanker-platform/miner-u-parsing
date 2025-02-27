@@ -40,7 +40,11 @@ app.add_middleware(
 )
 
 # 创建线程池处理PDF任务
-pdf_executor = ThreadPoolExecutor(max_workers=2)  # 可以根据服务器配置调整
+pdf_executor = ThreadPoolExecutor(max_workers=4)  # 增加工作线程数
+
+# 添加超时设置
+PROCESS_TIMEOUT = 300  # 5分钟超时
+REQUEST_TIMEOUT = 60   # 1分钟请求超时
 
 # 存储任务状态和结果
 class TaskResult:
@@ -51,6 +55,7 @@ class TaskResult:
         self.middle_json = None
         self.error = None
         self.created_at = datetime.now()
+        self.processing_time = None  # 添加处理时间记录
 
 task_results: Dict[str, TaskResult] = {}
 
@@ -98,10 +103,21 @@ async def process_pdf(
 async def process_pdf_background(task_id: str, file_path: str, output_dir: str, ocr: bool):
     try:
         task_results[task_id].status = "processing"
+        start_time = datetime.now()
         
-        # 使用线程池执行PDF处理
+        # 使用线程池执行PDF处理，添加超时
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(pdf_executor, process_pdf_task, task_id, file_path, output_dir, ocr)
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(pdf_executor, process_pdf_task, task_id, file_path, output_dir, ocr),
+                timeout=PROCESS_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            task_results[task_id].status = "failed"
+            task_results[task_id].error = "Processing timeout after 5 minutes"
+            return
+            
+        task_results[task_id].processing_time = (datetime.now() - start_time).total_seconds()
         
     except Exception as e:
         logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
@@ -258,22 +274,33 @@ async def delete_task(task_id: str):
 
 @app.get("/health")
 async def health_check():
-    # 检查GPU状态
     try:
-        result = subprocess.run(
+        # 检查GPU状态
+        gpu_result = subprocess.run(
             ["nvidia-smi"], 
-            capture_output=True, 
-            text=True
+            capture_output=True,
+            text=True,
+            timeout=5  # 添加超时
         )
-        gpu_available = result.returncode == 0
-    except:
-        gpu_available = False
-    
-    return {
-        "status": "healthy",
-        "gpu_available": gpu_available,
-        "timestamp": datetime.now().isoformat()
-    }
+        gpu_available = gpu_result.returncode == 0
+        
+        # 检查系统状态
+        active_tasks = len([t for t in task_results.values() if t.status == "processing"])
+        
+        return {
+            "status": "healthy",
+            "gpu_available": gpu_available,
+            "active_tasks": active_tasks,
+            "worker_pool_size": pdf_executor._max_workers,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/")
 async def root():
@@ -309,16 +336,41 @@ async def get_results(task_id: str):
 
 @app.get("/get_markdown/{task_id}")
 async def get_markdown(task_id: str):
-    if task_id not in task_results:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    result = task_results[task_id]
-    if result.status == "failed":
-        raise HTTPException(status_code=500, detail=result.error)
-    elif result.status == "processing":
-        return {"status": "processing", "message": "Task is still processing"}
-    
-    return JSONResponse(content={"markdown": result.markdown})
+    try:
+        if task_id not in task_results:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        result = task_results[task_id]
+        
+        # 检查任务状态
+        if result.status == "failed":
+            raise HTTPException(status_code=500, detail=result.error)
+        elif result.status == "processing":
+            return JSONResponse(
+                status_code=202,  # 使用202 Accepted表示正在处理
+                content={
+                    "status": "processing",
+                    "message": "Task is still processing",
+                    "processing_time": result.processing_time
+                }
+            )
+        elif result.status == "completed":
+            if result.markdown is None:
+                raise HTTPException(status_code=500, detail="Markdown content not found")
+            
+            return JSONResponse(
+                content={
+                    "status": "completed",
+                    "markdown": result.markdown,
+                    "processing_time": result.processing_time
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Unknown task status: {result.status}")
+            
+    except Exception as e:
+        logger.error(f"Error getting markdown for task {task_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/get_content_list/{task_id}")
 async def get_content_list(task_id: str):
@@ -359,3 +411,28 @@ async def cleanup_old_tasks():
             await asyncio.sleep(3600)  # 每小时清理一次
         except Exception as e:
             logger.error(f"Error in cleanup: {str(e)}")
+
+# 添加任务恢复函数
+async def recover_hanging_tasks():
+    while True:
+        try:
+            current_time = datetime.now()
+            for task_id, task in task_results.items():
+                # 如果任务处理时间超过10分钟，标记为失败
+                if (task.status == "processing" and 
+                    (current_time - task.created_at).total_seconds() > 600):
+                    task.status = "failed"
+                    task.error = "Task recovery: Processing timeout"
+                    logger.warning(f"Recovered hanging task: {task_id}")
+            
+            await asyncio.sleep(60)  # 每分钟检查一次
+            
+        except Exception as e:
+            logger.error(f"Error in task recovery: {str(e)}")
+            await asyncio.sleep(60)
+
+# 在应用启动时运行恢复程序
+@app.on.event("startup")
+async def startup_event():
+    asyncio.create_task(recover_hanging_tasks())
+    asyncio.create_task(cleanup_old_tasks())
