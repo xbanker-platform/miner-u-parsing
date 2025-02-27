@@ -3,3 +3,10 @@ project deployed on aws ec2 g4dn.2xlarge ubuntu 22.04 deeplearning base oss nvid
 dockerfile is in the root directory, download from https://github.com/opendatalab/MinerU/raw/master/Dockerfile
 
 api usage example in apiusage.md
+
+CUDA Management Rules:
+- Keep only necessary CUDA versions
+- Document required CUDA version for each application
+- Set proper symbolic links for default CUDA version
+- Test applications after CUDA cleanup
+- Monitor GPU compatibility with installed drivers

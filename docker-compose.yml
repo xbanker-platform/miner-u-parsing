@@ -4,6 +4,14 @@ services:
     build: .
     ports:
       - "8000:8000"
+    volumes:
+      - ./app:/app
+      - ./data:/data
+      - /usr/local/cuda-11.8:/usr/local/cuda-11.8
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_HOME=/usr/local/cuda-11.8
+      - LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:${LD_LIBRARY_PATH}
     deploy:
       resources:
         reservations:
@@ -11,3 +19,5 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    restart: unless-stopped
+    command: "uvicorn app:app --host 0.0.0.0 --port 8000"
