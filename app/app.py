@@ -569,7 +569,7 @@ image_dir = "images"
 os.makedirs(local_image_dir, exist_ok=True)
 os.makedirs(local_md_dir, exist_ok=True)
 
-# 根据错误信息修改，使用正确的构造函数参数
+# 创建writer
 image_writer = FileBasedDataWriter(local_image_dir)
 md_writer = FileBasedDataWriter(local_md_dir)
 
@@ -584,13 +584,41 @@ ds = PymuDocDataset(pdf_bytes)
 ## inference
 use_ocr = {}
 if ds.classify() == SupportedPdfParseMethod.OCR or use_ocr:
-    ds.apply(doc_analyze, ocr=True).pipe_ocr_mode(image_writer).dump_md(
-        md_writer, f"{{name_without_suff}}.md", image_dir
-    )
+    infer_result = ds.apply(doc_analyze, ocr=True)
+    pipe_result = infer_result.pipe_ocr_mode(image_writer)
 else:
-    ds.apply(doc_analyze, ocr=False).pipe_txt_mode(image_writer).dump_md(
-        md_writer, f"{{name_without_suff}}.md", image_dir
-    )
+    infer_result = ds.apply(doc_analyze, ocr=False)
+    pipe_result = infer_result.pipe_txt_mode(image_writer)
+
+# 绘制模型结果
+infer_result.draw_model(os.path.join(local_md_dir, f"{{name_without_suff}}_model.pdf"))
+
+# 获取模型推理结果
+model_inference_result = infer_result.get_infer_res()
+
+# 绘制布局结果
+pipe_result.draw_layout(os.path.join(local_md_dir, f"{{name_without_suff}}_layout.pdf"))
+
+# 绘制spans结果
+pipe_result.draw_span(os.path.join(local_md_dir, f"{{name_without_suff}}_spans.pdf"))
+
+# 获取markdown内容
+md_content = pipe_result.get_markdown(image_dir)
+
+# 保存markdown
+pipe_result.dump_md(md_writer, f"{{name_without_suff}}.md", image_dir)
+
+# 获取内容列表
+content_list_content = pipe_result.get_content_list(image_dir)
+
+# 保存内容列表
+pipe_result.dump_content_list(md_writer, f"{{name_without_suff}}_content_list.json", image_dir)
+
+# 获取中间json
+middle_json_content = pipe_result.get_middle_json()
+
+# 保存中间json
+pipe_result.dump_middle_json(md_writer, f'{{name_without_suff}}_middle.json')
 """.format(file_path, output_dir, output_dir, "True" if ocr else "False"))
         
         # 执行脚本
@@ -621,7 +649,7 @@ else:
         markdown_path = os.path.join(output_dir, f"{base_name}.md")
         if not os.path.exists(markdown_path):
             # 尝试查找任何.md文件
-            md_files = [f for f in all_files if f.endswith('.md')]
+            md_files = [f for f in all_files if f.endswith('.md') and not f.endswith('_model.md') and not f.endswith('_layout.md') and not f.endswith('_spans.md')]
             if md_files:
                 markdown_path = os.path.join(output_dir, md_files[0])
                 logger.info(f"Using alternative markdown file: {md_files[0]}")
