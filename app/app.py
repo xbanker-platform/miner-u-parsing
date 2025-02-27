@@ -12,6 +12,8 @@ import json
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+from starlette.middleware.base import BaseHTTPMiddleware
+import traceback
 
 # 配置日志
 logging.basicConfig(
@@ -56,71 +58,108 @@ class TaskResult:
         self.error = None
         self.created_at = datetime.now()
         self.processing_time = None  # 添加处理时间记录
+        self.filename = None
+        self.file_path = None
 
 task_results: Dict[str, TaskResult] = {}
 
-@app.post("/process_pdf/")
-async def process_pdf(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    ocr: bool = True
-):
+class ErrorHandlingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            logger.error(f"Unhandled error: {str(e)}\n{traceback.format_exc()}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "detail": "Internal server error",
+                    "error": str(e)
+                }
+            )
+
+app.add_middleware(ErrorHandlingMiddleware)
+
+@app.post("/upload_pdf/")
+async def upload_pdf(file: UploadFile = File(...)):
     try:
-        # 检查文件大小
-        file_size = 0
-        chunk_size = 1024 * 1024  # 1MB chunks
-        while chunk := await file.read(chunk_size):
-            file_size += len(chunk)
-            if file_size > 100 * 1024 * 1024:  # 100MB limit
-                raise HTTPException(
-                    status_code=413,
-                    detail="File too large (max 100MB)"
-                )
-        
-        # 重置文件指针
-        await file.seek(0)
-        
         # 生成唯一任务ID
         task_id = str(uuid.uuid4())
         
         # 创建任务目录
         task_dir = f"/data/uploads/{task_id}"
-        output_dir = f"/data/results/{task_id}"
         os.makedirs(task_dir, exist_ok=True)
-        os.makedirs(f"{output_dir}/images", exist_ok=True)
         
-        # 分块保存上传的文件
+        # 保存文件
         file_path = os.path.join(task_dir, file.filename)
         with open(file_path, "wb") as buffer:
-            while chunk := await file.read(chunk_size):
+            chunk_size = 4 * 1024 * 1024
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
                 buffer.write(chunk)
         
-        # 更新任务状态
+        # 记录任务
         task_results[task_id] = TaskResult()
-        task_results[task_id].status = "processing"
+        task_results[task_id].status = "uploaded"
+        task_results[task_id].filename = file.filename
+        task_results[task_id].file_path = file_path
         
-        # 在后台处理PDF
-        background_tasks.add_task(process_pdf_background, task_id, file_path, output_dir, ocr)
-        
-        return JSONResponse(
-            content={
-                "task_id": task_id,
-                "status": "processing",
-                "message": "PDF processing started"
-            },
-            status_code=202
-        )
-            
-    except HTTPException as he:
-        raise he
+        return {
+            "task_id": task_id,
+            "status": "uploaded",
+            "message": "File uploaded successfully"
+        }
     except Exception as e:
-        logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
+        logger.error(f"Error uploading PDF: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing PDF: {str(e)}"
+            detail=f"Error uploading PDF: {str(e)}"
         )
 
-async def process_pdf_background(task_id: str, file_path: str, output_dir: str, ocr: bool):
+@app.post("/process_task/{task_id}")
+async def process_task(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    ocr: bool = True
+):
+    if task_id not in task_results:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task = task_results[task_id]
+    if task.status != "uploaded":
+        return {
+            "task_id": task_id,
+            "status": task.status,
+            "message": f"Task is already in {task.status} state"
+        }
+    
+    # 创建输出目录
+    output_dir = f"/data/results/{task_id}"
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(f"{output_dir}/images", exist_ok=True)
+    
+    # 更新任务状态
+    task.status = "processing"
+    
+    # 在后台处理PDF
+    background_tasks.add_task(
+        process_pdf_background, 
+        task_id, 
+        task.file_path, 
+        output_dir, 
+        ocr,
+        task.filename
+    )
+    
+    return {
+        "task_id": task_id,
+        "status": "processing",
+        "message": "PDF processing started"
+    }
+
+async def process_pdf_background(task_id: str, file_path: str, output_dir: str, ocr: bool, filename: str):
     try:
         task_results[task_id].status = "processing"
         start_time = datetime.now()

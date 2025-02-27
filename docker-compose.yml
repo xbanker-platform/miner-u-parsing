@@ -3,13 +3,14 @@ services:
   mineru:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # 只在本地暴露端口
     volumes:
       - ./app:/app
       - ./data:/data
     environment:
       - CUDA_VISIBLE_DEVICES=0
       - PYTHONUNBUFFERED=1
+      - UVICORN_TIMEOUT=300  # 5分钟超时
     deploy:
       resources:
         reservations:
@@ -17,7 +18,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    restart: unless-stopped
+    restart: on-failure:5  # 失败时最多重启5次
     working_dir: /app
     command: >
       bash -c '
@@ -26,11 +27,20 @@ services:
         --host 0.0.0.0 
         --port 8000 
         --workers 1
-        --timeout-keep-alive 75
-        --limit-concurrency 4
-        --backlog 2000
+        --timeout-keep-alive 120
+        --limit-concurrency 2
+        --backlog 100
         '
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - mineru
