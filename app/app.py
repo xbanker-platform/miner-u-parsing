@@ -544,6 +544,10 @@ async def process_pdf_and_return(
         # 2. 处理PDF (同步处理，不使用后台任务)
         logger.info(f"Processing PDF: {file_path} with OCR={ocr}")
         
+        # 获取文件名（不含扩展名）
+        base_name = os.path.splitext(file.filename)[0]
+        logger.info(f"Base filename: {base_name}")
+        
         # 创建Python脚本
         script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
         with open(script_path, "w") as f:
@@ -609,21 +613,36 @@ else:
         logger.info(f"PDF processed in {processing_time} seconds")
         
         # 3. 读取结果
-        base_name = os.path.splitext(file.filename)[0]
+        # 列出目录中的所有文件，以便调试
+        all_files = os.listdir(output_dir)
+        logger.info(f"Files in output directory: {all_files}")
         
         # 读取Markdown
         markdown_path = os.path.join(output_dir, f"{base_name}.md")
         if not os.path.exists(markdown_path):
-            raise HTTPException(
-                status_code=500,
-                detail="Markdown file not generated"
-            )
+            # 尝试查找任何.md文件
+            md_files = [f for f in all_files if f.endswith('.md')]
+            if md_files:
+                markdown_path = os.path.join(output_dir, md_files[0])
+                logger.info(f"Using alternative markdown file: {md_files[0]}")
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Markdown file not generated"
+                )
         
         with open(markdown_path, 'r', encoding='utf-8') as f:
             markdown_content = f.read()
         
         # 读取内容列表
         content_list_path = os.path.join(output_dir, f"{base_name}_content_list.json")
+        if not os.path.exists(content_list_path):
+            # 尝试查找任何_content_list.json文件
+            content_list_files = [f for f in all_files if f.endswith('_content_list.json')]
+            if content_list_files:
+                content_list_path = os.path.join(output_dir, content_list_files[0])
+                logger.info(f"Using alternative content list file: {content_list_files[0]}")
+        
         if os.path.exists(content_list_path):
             with open(content_list_path, 'r', encoding='utf-8') as f:
                 content_list = f.read()
@@ -633,6 +652,13 @@ else:
         
         # 读取中间JSON
         middle_json_path = os.path.join(output_dir, f"{base_name}_middle.json")
+        if not os.path.exists(middle_json_path):
+            # 尝试查找任何_middle.json文件
+            middle_json_files = [f for f in all_files if f.endswith('_middle.json')]
+            if middle_json_files:
+                middle_json_path = os.path.join(output_dir, middle_json_files[0])
+                logger.info(f"Using alternative middle json file: {middle_json_files[0]}")
+        
         if os.path.exists(middle_json_path):
             with open(middle_json_path, 'r', encoding='utf-8') as f:
                 middle_json = f.read()
