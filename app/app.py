@@ -54,7 +54,7 @@ async def process_pdf(
         task_dir = f"/data/uploads/{task_id}"
         output_dir = f"/data/results/{task_id}"
         os.makedirs(task_dir, exist_ok=True)
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(f"{output_dir}/images", exist_ok=True)
         
         # 保存上传的文件
         file_path = os.path.join(task_dir, file.filename)
@@ -89,18 +89,77 @@ async def process_pdf(
 
 def process_pdf_task(task_id: str, file_path: str, output_dir: str, ocr: bool):
     try:
-        # 构建命令
+        # 使用Python API处理PDF
+        logger.info(f"Processing PDF: {file_path} with OCR={ocr}")
+        
+        # 创建Python脚本
+        script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
+        with open(script_path, "w") as f:
+            f.write(f"""
+import os
+from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
+from magic_pdf.data.dataset import PymuDocDataset
+from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+from magic_pdf.config.enums import SupportedPdfParseMethod
+
+# args
+pdf_file_name = "{file_path}"
+name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
+
+# prepare env
+local_image_dir, local_md_dir = "{output_dir}/images", "{output_dir}"
+image_dir = "images"
+
+# read bytes
+reader1 = FileBasedDataReader("")
+pdf_bytes = reader1.read(pdf_file_name)
+
+# Create image writer and md writer
+image_writer = FileBasedDataWriter(local_image_dir)
+md_writer = FileBasedDataWriter(local_md_dir)
+
+# proc
+## Create Dataset Instance
+ds = PymuDocDataset(pdf_bytes)
+
+## inference
+if ds.classify() == SupportedPdfParseMethod.OCR or {ocr}:
+    infer_result = ds.apply(doc_analyze, ocr=True)
+    ## pipeline
+    pipe_result = infer_result.pipe_ocr_mode(image_writer)
+else:
+    infer_result = ds.apply(doc_analyze, ocr=False)
+    ## pipeline
+    pipe_result = infer_result.pipe_txt_mode(image_writer)
+
+### get markdown content
+md_content = pipe_result.get_markdown(image_dir)
+
+### dump markdown
+pipe_result.dump_md(md_writer, f"{{name_without_suff}}.md", image_dir)
+
+### get content list content
+content_list_content = pipe_result.get_content_list(image_dir)
+
+### dump content list
+pipe_result.dump_content_list(md_writer, f"{{name_without_suff}}_content_list.json", image_dir)
+
+### get middle json
+middle_json_content = pipe_result.get_middle_json()
+
+### dump middle json
+pipe_result.dump_middle_json(md_writer, f'{{name_without_suff}}_middle.json')
+
+print("Processing completed successfully!")
+""")
+        
+        # 执行Python脚本
         cmd = [
-            "magic-pdf", 
-            "-p", file_path, 
-            "-o", output_dir
+            "/bin/bash", 
+            "-c", 
+            f"source /opt/mineru_venv/bin/activate && python {script_path}"
         ]
         
-        if ocr:
-            cmd.append("--ocr")
-        
-        # 执行命令
-        logger.info(f"Running command: {' '.join(cmd)}")
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -189,3 +248,7 @@ async def health_check():
         "gpu_available": gpu_available,
         "timestamp": datetime.now().isoformat()
     }
+
+@app.get("/")
+async def root():
+    return {"message": "MinerU API is running. Visit /docs for API documentation."}
