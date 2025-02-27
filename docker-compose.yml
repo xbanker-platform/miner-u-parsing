@@ -3,13 +3,13 @@ services:
   mineru:
     build: .
     ports:
-      - "127.0.0.1:8000:8000"  # 只在本地暴露端口
+      - "8000:8000"  # 暂时对外暴露端口以便调试
     volumes:
       - ./app:/app
       - ./data:/data
     environment:
       - CUDA_VISIBLE_DEVICES=0
-      - PYTHONUNBUFFERED=1
+      - PYTHONUNBUFFERED=1  # 确保Python输出不被缓存
       - UVICORN_TIMEOUT=300  # 5分钟超时
     deploy:
       resources:
@@ -18,19 +18,9 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    restart: on-failure:5  # 失败时最多重启5次
+    restart: "no"  # 暂时禁用自动重启以便调试
     working_dir: /app
-    command: >
-      bash -c '
-        source /opt/mineru_venv/bin/activate &&
-        python -m uvicorn app:app 
-        --host 0.0.0.0 
-        --port 8000 
-        --workers 1
-        --timeout-keep-alive 120
-        --limit-concurrency 2
-        --backlog 100
-        '
+    command: bash -c 'source /opt/mineru_venv/bin/activate && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --log-level debug'
     ulimits:
       nofile:
         soft: 65536
