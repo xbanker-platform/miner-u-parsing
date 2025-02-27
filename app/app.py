@@ -547,7 +547,7 @@ async def process_pdf_and_return(
         # 创建Python脚本
         script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
         with open(script_path, "w") as f:
-            f.write(f"""
+            f.write("""
 import os
 from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
 from magic_pdf.data.dataset import PymuDocDataset
@@ -555,11 +555,13 @@ from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
 from magic_pdf.config.enums import SupportedPdfParseMethod
 
 # args
-pdf_file_name = "{file_path}"
+pdf_file_name = "{}"  # 文件路径
 name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
 
 # prepare env
-local_image_dir, local_md_dir = "{output_dir}/images", "{output_dir}"
+local_image_dir, local_md_dir = "{}/images", "{}"
+image_dir = "images"
+
 os.makedirs(local_image_dir, exist_ok=True)
 os.makedirs(local_md_dir, exist_ok=True)
 
@@ -576,10 +578,10 @@ dataset = PymuDocDataset(
 doc_analyze(
     dataset=dataset,
     pdf_file_name=pdf_file_name,
-    ocr={"ocr": {ocr}},
+    ocr={},
     parse_method=SupportedPdfParseMethod.PYMUPDF,
 )
-""")
+""".format(file_path, output_dir, output_dir, "True" if ocr else "False"))
         
         # 执行脚本
         start_time = datetime.now()
@@ -616,25 +618,21 @@ doc_analyze(
         
         # 读取内容列表
         content_list_path = os.path.join(output_dir, f"{base_name}_content_list.json")
-        if not os.path.exists(content_list_path):
-            raise HTTPException(
-                status_code=500,
-                detail="Content list file not generated"
-            )
-        
-        with open(content_list_path, 'r', encoding='utf-8') as f:
-            content_list = f.read()
+        if os.path.exists(content_list_path):
+            with open(content_list_path, 'r', encoding='utf-8') as f:
+                content_list = f.read()
+        else:
+            content_list = "{}"
+            logger.warning(f"Content list file not found: {content_list_path}")
         
         # 读取中间JSON
         middle_json_path = os.path.join(output_dir, f"{base_name}_middle.json")
-        if not os.path.exists(middle_json_path):
-            raise HTTPException(
-                status_code=500,
-                detail="Middle JSON file not generated"
-            )
-        
-        with open(middle_json_path, 'r', encoding='utf-8') as f:
-            middle_json = f.read()
+        if os.path.exists(middle_json_path):
+            with open(middle_json_path, 'r', encoding='utf-8') as f:
+                middle_json = f.read()
+        else:
+            middle_json = "{}"
+            logger.warning(f"Middle JSON file not found: {middle_json_path}")
         
         # 4. 返回结果
         response = {
