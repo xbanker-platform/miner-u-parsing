@@ -578,7 +578,8 @@ pdf_bytes = reader.read(pdf_file_name)  # read the pdf content
 ds = PymuDocDataset(pdf_bytes)
 
 ## inference
-if ds.classify() == SupportedPdfParseMethod.OCR or {ocr}:
+use_ocr = {}
+if ds.classify() == SupportedPdfParseMethod.OCR or use_ocr:
     ds.apply(doc_analyze, ocr=True).pipe_ocr_mode(image_writer).dump_md(
         md_writer, f"{{name_without_suff}}.md", image_dir
     )
