@@ -9,7 +9,9 @@ import uuid
 import logging
 from typing import Dict, Optional, List
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 # 配置日志
 logging.basicConfig(
@@ -33,12 +35,24 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 在生产环境中应该限制来源
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
-# 存储任务状态
-tasks: Dict[str, Dict] = {}
+# 创建线程池处理PDF任务
+pdf_executor = ThreadPoolExecutor(max_workers=2)  # 可以根据服务器配置调整
+
+# 存储任务状态和结果
+class TaskResult:
+    def __init__(self):
+        self.status = "pending"
+        self.markdown = None
+        self.content_list = None
+        self.middle_json = None
+        self.error = None
+        self.created_at = datetime.now()
+
+task_results: Dict[str, TaskResult] = {}
 
 @app.post("/process_pdf/")
 async def process_pdf(
@@ -62,17 +76,11 @@ async def process_pdf(
             shutil.copyfileobj(file.file, buffer)
         
         # 更新任务状态
-        tasks[task_id] = {
-            "id": task_id,
-            "filename": file.filename,
-            "status": "processing",
-            "created_at": datetime.now().isoformat(),
-            "output_dir": output_dir,
-            "ocr": ocr
-        }
+        task_results[task_id] = TaskResult()
+        task_results[task_id].status = "processing"
         
         # 在后台处理PDF
-        background_tasks.add_task(process_pdf_task, task_id, file_path, output_dir, ocr)
+        background_tasks.add_task(process_pdf_background, task_id, file_path, output_dir, ocr)
         
         return {
             "task_id": task_id,
@@ -86,6 +94,19 @@ async def process_pdf(
             status_code=500,
             detail=f"Error processing PDF: {str(e)}"
         )
+
+async def process_pdf_background(task_id: str, file_path: str, output_dir: str, ocr: bool):
+    try:
+        task_results[task_id].status = "processing"
+        
+        # 使用线程池执行PDF处理
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(pdf_executor, process_pdf_task, task_id, file_path, output_dir, ocr)
+        
+    except Exception as e:
+        logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
+        task_results[task_id].status = "failed"
+        task_results[task_id].error = str(e)
 
 def process_pdf_task(task_id: str, file_path: str, output_dir: str, ocr: bool):
     try:
@@ -169,45 +190,50 @@ print("Processing completed successfully!")
         # 检查命令是否成功
         if result.returncode != 0:
             logger.error(f"Command failed: {result.stderr}")
-            tasks[task_id]["status"] = "failed"
-            tasks[task_id]["error"] = result.stderr
+            task_results[task_id].status = "failed"
+            task_results[task_id].error = result.stderr
             return
         
-        # 更新任务状态
-        tasks[task_id]["status"] = "completed"
-        tasks[task_id]["completed_at"] = datetime.now().isoformat()
+        # 读取处理结果并存储在内存中
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
         
-        # 记录输出文件
-        output_files = []
-        for root, _, files in os.walk(output_dir):
-            for file in files:
-                rel_path = os.path.relpath(os.path.join(root, file), output_dir)
-                output_files.append(rel_path)
+        with open(f"{output_dir}/{base_name}.md", 'r', encoding='utf-8') as f:
+            task_results[task_id].markdown = f.read()
+            
+        with open(f"{output_dir}/{base_name}_content_list.json", 'r', encoding='utf-8') as f:
+            task_results[task_id].content_list = f.read()
+            
+        with open(f"{output_dir}/{base_name}_middle.json", 'r', encoding='utf-8') as f:
+            task_results[task_id].middle_json = f.read()
         
-        tasks[task_id]["output_files"] = output_files
+        task_results[task_id].status = "completed"
+        
+        # 清理临时文件
+        shutil.rmtree(output_dir, ignore_errors=True)
+        os.remove(file_path)
         
     except Exception as e:
-        logger.error(f"Error in background task: {str(e)}", exc_info=True)
-        tasks[task_id]["status"] = "failed"
-        tasks[task_id]["error"] = str(e)
+        logger.error(f"Error in PDF task: {str(e)}", exc_info=True)
+        task_results[task_id].status = "failed"
+        task_results[task_id].error = str(e)
 
 @app.get("/tasks/{task_id}")
 async def get_task_status(task_id: str):
-    if task_id not in tasks:
+    if task_id not in task_results:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    return tasks[task_id]
+    return task_results[task_id].__dict__
 
 @app.get("/tasks")
 async def list_tasks():
-    return list(tasks.values())
+    return list(task_results.values())
 
 @app.get("/download/{task_id}/{file_path:path}")
 async def download_file(task_id: str, file_path: str):
-    if task_id not in tasks:
+    if task_id not in task_results:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    task = tasks[task_id]
+    task = task_results[task_id]
     file_full_path = os.path.join(task["output_dir"], file_path)
     
     if not os.path.exists(file_full_path):
@@ -217,16 +243,16 @@ async def download_file(task_id: str, file_path: str):
 
 @app.delete("/tasks/{task_id}")
 async def delete_task(task_id: str):
-    if task_id not in tasks:
+    if task_id not in task_results:
         raise HTTPException(status_code=404, detail="Task not found")
     
     # 删除任务文件
-    task = tasks[task_id]
+    task = task_results[task_id]
     shutil.rmtree(f"/data/uploads/{task_id}", ignore_errors=True)
     shutil.rmtree(task["output_dir"], ignore_errors=True)
     
     # 删除任务记录
-    del tasks[task_id]
+    del task_results[task_id]
     
     return {"message": "Task deleted successfully"}
 
@@ -252,3 +278,84 @@ async def health_check():
 @app.get("/")
 async def root():
     return {"message": "MinerU API is running. Visit /docs for API documentation."}
+
+@app.get("/get_results/{task_id}")
+async def get_results(task_id: str):
+    if task_id not in task_results:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task = task_results[task_id]
+    if task["status"] != "completed":
+        return {
+            "status": task["status"],
+            "message": "Task is still processing"
+        }
+    
+    base_name = os.path.splitext(task["filename"])[0]
+    result_files = {
+        "markdown": f"{base_name}.md",
+        "content_list": f"{base_name}_content_list.json",
+        "middle_json": f"{base_name}_middle.json"
+    }
+    
+    results = {}
+    for key, filename in result_files.items():
+        file_path = os.path.join(task["output_dir"], filename)
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                results[key] = f.read()
+    
+    return JSONResponse(content=results)
+
+@app.get("/get_markdown/{task_id}")
+async def get_markdown(task_id: str):
+    if task_id not in task_results:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    result = task_results[task_id]
+    if result.status == "failed":
+        raise HTTPException(status_code=500, detail=result.error)
+    elif result.status == "processing":
+        return {"status": "processing", "message": "Task is still processing"}
+    
+    return JSONResponse(content={"markdown": result.markdown})
+
+@app.get("/get_content_list/{task_id}")
+async def get_content_list(task_id: str):
+    if task_id not in task_results:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    result = task_results[task_id]
+    if result.status == "failed":
+        raise HTTPException(status_code=500, detail=result.error)
+    elif result.status == "processing":
+        return {"status": "processing", "message": "Task is still processing"}
+    
+    return JSONResponse(content={"content_list": result.content_list})
+
+@app.get("/get_middle_json/{task_id}")
+async def get_middle_json(task_id: str):
+    if task_id not in task_results:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    result = task_results[task_id]
+    if result.status == "failed":
+        raise HTTPException(status_code=500, detail=result.error)
+    elif result.status == "processing":
+        return {"status": "processing", "message": "Task is still processing"}
+    
+    return JSONResponse(content={"middle_json": result.middle_json})
+
+# 清理超过1小时的任务结果
+@app.on.event("startup")
+@app.on.event("shutdown")
+async def cleanup_old_tasks():
+    while True:
+        try:
+            current_time = datetime.now()
+            for task_id in list(task_results.keys()):
+                if (current_time - task_results[task_id].created_at) > timedelta(hours=1):
+                    del task_results[task_id]
+            await asyncio.sleep(3600)  # 每小时清理一次
+        except Exception as e:
+            logger.error(f"Error in cleanup: {str(e)}")
