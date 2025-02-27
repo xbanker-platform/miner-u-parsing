@@ -66,6 +66,20 @@ async def process_pdf(
     ocr: bool = True
 ):
     try:
+        # 检查文件大小
+        file_size = 0
+        chunk_size = 1024 * 1024  # 1MB chunks
+        while chunk := await file.read(chunk_size):
+            file_size += len(chunk)
+            if file_size > 100 * 1024 * 1024:  # 100MB limit
+                raise HTTPException(
+                    status_code=413,
+                    detail="File too large (max 100MB)"
+                )
+        
+        # 重置文件指针
+        await file.seek(0)
+        
         # 生成唯一任务ID
         task_id = str(uuid.uuid4())
         
@@ -75,10 +89,11 @@ async def process_pdf(
         os.makedirs(task_dir, exist_ok=True)
         os.makedirs(f"{output_dir}/images", exist_ok=True)
         
-        # 保存上传的文件
+        # 分块保存上传的文件
         file_path = os.path.join(task_dir, file.filename)
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while chunk := await file.read(chunk_size):
+                buffer.write(chunk)
         
         # 更新任务状态
         task_results[task_id] = TaskResult()
@@ -87,12 +102,17 @@ async def process_pdf(
         # 在后台处理PDF
         background_tasks.add_task(process_pdf_background, task_id, file_path, output_dir, ocr)
         
-        return {
-            "task_id": task_id,
-            "status": "processing",
-            "message": "PDF processing started"
-        }
+        return JSONResponse(
+            content={
+                "task_id": task_id,
+                "status": "processing",
+                "message": "PDF processing started"
+            },
+            status_code=202
+        )
             
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
         raise HTTPException(
