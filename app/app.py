@@ -496,11 +496,19 @@ async def recover_hanging_tasks():
 async def startup_event():
     # 创建或修改magic-pdf.json配置文件以启用CUDA
     config_path = os.path.expanduser("~/magic-pdf.json")
-    config = {
-        "device-mode": "cuda",  # 启用CUDA加速
-        "model-dir": "/app/models"  # 模型目录
-    }
     
+    # 如果配置文件存在，读取它
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            config = json.load(f)
+    else:
+        config = {}
+    
+    # 更新配置
+    config["device-mode"] = "cuda"  # 启用CUDA加速
+    config["model-dir"] = "/app/models"  # 模型目录
+    
+    # 保存配置
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
     
@@ -574,7 +582,14 @@ from magic_pdf.config.enums import SupportedPdfParseMethod
 
 # 确保使用CUDA
 config_path = os.path.expanduser("~/magic-pdf.json")
-if not os.path.exists(config_path):
+if os.path.exists(config_path):
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    config["device-mode"] = "cuda"
+    config["model-dir"] = "/app/models"
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+else:
     with open(config_path, "w") as f:
         json.dump({{"device-mode": "cuda", "model-dir": "/app/models"}}, f, indent=2)
 
