@@ -50,10 +50,11 @@ RUN /bin/bash -c "pip3 install huggingface_hub && \
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install fastapi==0.104.1 uvicorn==0.23.2 python-multipart==0.0.6 pydantic==2.4.2"
 
-# 在安装PyTorch和PaddlePaddle之前，先安装正确版本的NumPy
+# 在安装其他包之前，先安装正确版本的NumPy和OpenCV
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
-    pip uninstall -y numpy && \
-    pip install numpy==1.23.5"
+    pip uninstall -y numpy opencv-python paddle paddlepaddle-gpu && \
+    pip install numpy==1.24.3 && \
+    pip install opencv-python==4.8.0.74"
 
 # Install support for CUDA PyTorch
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
@@ -61,12 +62,12 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
 
 # Install support for CUDA PaddlePaddle (for OCR acceleration)
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
-    pip install paddlepaddle-gpu==2.6.1"
+    pip install paddlepaddle-gpu==2.5.2 -i https://mirror.baidu.com/pypi/simple"
 
-# 重新安装opencv-python以确保它与NumPy兼容
+# 重新安装magic-pdf以确保它使用正确的依赖
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
-    pip uninstall -y opencv-python && \
-    pip install opencv-python==4.8.0.74"
+    pip uninstall -y magic-pdf && \
+    pip install -U magic-pdf"
 
 # Download model files
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
