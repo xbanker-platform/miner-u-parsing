@@ -8,6 +8,8 @@ services:
       - ./app:/app
       - ./data:/data
       - ./models:/app/models  # 挂载模型目录
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
     environment:
       - CUDA_VISIBLE_DEVICES=0
       - PYTHONUNBUFFERED=1  # 确保Python输出不被缓存

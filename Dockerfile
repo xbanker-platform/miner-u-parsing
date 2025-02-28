@@ -85,5 +85,22 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     cp -r /root/.cache/huggingface/hub/models--hantian--layoutreader/snapshots/*/* /app/models/layoutreader/ && \
     ls -R /app/models"
 
+# 创建工作目录
+WORKDIR /app
+
+# 复制所有脚本和配置文件
+COPY scripts/ /app/scripts/
+COPY tests/ /app/tests/
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# 设置脚本权限
+RUN chmod +x /app/scripts/*.sh
+
+# 运行初始化脚本
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
+    /app/scripts/download_models.sh && \
+    /app/scripts/copy_models.sh && \
+    python3 /app/tests/test_config.py"
+
 # Set the entry point to activate the virtual environment and run the command line tool
 ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]
