@@ -505,16 +505,28 @@ async def startup_event():
         config = {}
     
     # 更新配置
-    config["device-mode"] = "cuda"  # 启用CUDA加速
-    config["models-dir"] = "/app/models"  # 模型目录
-    config["formula-config"] = {
-        "mfd_model": "yolo_v8_ft",
-        "mfr_model": "unimernet_small",
-        "enable": True
-    }
-    config["layout-config"] = {
-        "model": "doclayout_yolo"
-    }
+    config.update({
+        "device-mode": "cuda",  # 启用CUDA加速
+        "models-dir": "/app/models",  # 模型目录
+        "formula-config": {
+            "mfd_model": "yolo_v8_ft",
+            "mfr_model": "unimernet_small",
+            "enable": True
+        },
+        "layout-config": {
+            "model": "doclayout_yolo"
+        },
+        "weights": {
+            "yolo_v8_ft": "MFD/YOLO/yolo_v8_ft.pt",
+            "unimernet_small": "MFR/unimernet_small.onnx",
+            "doclayout_yolo": "layout/doclayout_yolo.pt"
+        },
+        "table-config": {
+            "model": "rapid_table",
+            "sub_model": "slanet_plus",
+            "enable": True
+        }
+    })
     
     # 保存配置
     with open(config_path, "w") as f:

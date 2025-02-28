@@ -75,9 +75,13 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O /tmp/download_models_hf.py && \
     python3 /tmp/download_models_hf.py && \
     mkdir -p /app/models/MFD/YOLO && \
+    mkdir -p /app/models/MFR && \
+    mkdir -p /app/models/layout && \
     mkdir -p /app/models/layoutreader && \
     cp -r /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/*/models/* /app/models/ && \
     find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'yolo_v8_ft.pt' -exec cp {} /app/models/MFD/YOLO/ \; && \
+    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'unimernet_small.onnx' -exec cp {} /app/models/MFR/ \; && \
+    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'doclayout_yolo.pt' -exec cp {} /app/models/layout/ \; && \
     cp -r /root/.cache/huggingface/hub/models--hantian--layoutreader/snapshots/*/* /app/models/layoutreader/ && \
     ls -R /app/models"
 
