@@ -51,17 +51,20 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install fastapi==0.104.1 uvicorn==0.23.2 python-multipart==0.0.6 pydantic==2.4.2"
 
 # Install support for CUDA PyTorch
-RUN pip install --force-reinstall torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu118
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
+    pip install --force-reinstall torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu118"
 
 # Install support for CUDA PaddlePaddle (for OCR acceleration)
-RUN pip install paddlepaddle-gpu==2.6.1
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
+    pip install paddlepaddle-gpu==2.6.1"
 
 # Download model files
-RUN pip install huggingface_hub && \
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
+    pip install huggingface_hub && \
     wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O /tmp/download_models_hf.py && \
-    python /tmp/download_models_hf.py && \
+    python3 /tmp/download_models_hf.py && \
     mkdir -p /app/models && \
-    cp -r ~/magic-pdf-models/* /app/models/
+    cp -r ~/magic-pdf-models/* /app/models/"
 
 # Set the entry point to activate the virtual environment and run the command line tool
 ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]
