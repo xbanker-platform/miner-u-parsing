@@ -14,6 +14,8 @@ services:
       - UVICORN_TIMEOUT=300  # 5分钟超时
     deploy:
       resources:
+        limits:
+          memory: 16G  # 限制内存使用
         reservations:
           devices:
             - driver: nvidia
