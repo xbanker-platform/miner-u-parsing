@@ -62,7 +62,7 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
 
 # Install support for CUDA PaddlePaddle (for OCR acceleration)
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
-    pip install paddlepaddle-gpu==2.5.2 -i https://mirror.baidu.com/pypi/simple"
+    pip install paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
 
 # 重新安装magic-pdf以确保它使用正确的依赖
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
