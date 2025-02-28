@@ -96,16 +96,5 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # 设置脚本权限
 RUN chmod +x /app/scripts/*.sh
 
-# 创建启动脚本
-RUN echo '#!/bin/bash\n\
-source /opt/mineru_venv/bin/activate\n\
-\n\
-# 运行测试\n\
-python3 /app/tests/test_config.py\n\
-\n\
-# 启动应用\n\
-exec "$@"' > /app/entrypoint.sh && \
-    chmod +x /app/entrypoint.sh
-
 # 设置入口点
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
