@@ -50,6 +50,11 @@ RUN /bin/bash -c "pip3 install huggingface_hub && \
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install fastapi==0.104.1 uvicorn==0.23.2 python-multipart==0.0.6 pydantic==2.4.2"
 
+# 在安装PyTorch和PaddlePaddle之前，先安装正确版本的NumPy
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
+    pip uninstall -y numpy && \
+    pip install numpy==1.23.5"
+
 # Install support for CUDA PyTorch
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip install --force-reinstall torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu118"
@@ -57,6 +62,11 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
 # Install support for CUDA PaddlePaddle (for OCR acceleration)
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip install paddlepaddle-gpu==2.6.1"
+
+# 重新安装opencv-python以确保它与NumPy兼容
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
+    pip uninstall -y opencv-python && \
+    pip install opencv-python==4.8.0.74"
 
 # Download model files
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
