@@ -74,9 +74,12 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip install huggingface_hub && \
     wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O /tmp/download_models_hf.py && \
     python3 /tmp/download_models_hf.py && \
-    mkdir -p /app/models && \
-    cp -r /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/*/models/* /app/models/ || true && \
-    cp -r /root/.cache/huggingface/hub/models--hantian--layoutreader/snapshots/*/* /app/models/ || true"
+    mkdir -p /app/models/MFD/YOLO && \
+    mkdir -p /app/models/layoutreader && \
+    cp -r /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/*/models/* /app/models/ && \
+    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'yolo_v8_ft.pt' -exec cp {} /app/models/MFD/YOLO/ \; && \
+    cp -r /root/.cache/huggingface/hub/models--hantian--layoutreader/snapshots/*/* /app/models/layoutreader/ && \
+    ls -R /app/models"
 
 # Set the entry point to activate the virtual environment and run the command line tool
 ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]

@@ -506,7 +506,15 @@ async def startup_event():
     
     # 更新配置
     config["device-mode"] = "cuda"  # 启用CUDA加速
-    config["models-dir"] = "/app/models"  # 注意这里是models-dir而不是model-dir
+    config["models-dir"] = "/app/models"  # 模型目录
+    config["formula-config"] = {
+        "mfd_model": "yolo_v8_ft",
+        "mfr_model": "unimernet_small",
+        "enable": True
+    }
+    config["layout-config"] = {
+        "model": "doclayout_yolo"
+    }
     
     # 保存配置
     with open(config_path, "w") as f:
