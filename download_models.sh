@@ -7,7 +7,7 @@ pip install huggingface_hub
 wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O download_models_hf.py
 
 # 执行下载
-python download_models_hf.py
+python3 download_models_hf.py
 
 # 创建模型目录
 mkdir -p models
