@@ -494,6 +494,19 @@ async def recover_hanging_tasks():
 # 在应用启动时运行恢复程序
 @app.on_event("startup")
 async def startup_event():
+    # 创建或修改magic-pdf.json配置文件以启用CUDA
+    config_path = os.path.expanduser("~/magic-pdf.json")
+    config = {
+        "device-mode": "cuda",  # 启用CUDA加速
+        "model-dir": "/app/models"  # 模型目录
+    }
+    
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+    
+    logger.info(f"CUDA acceleration enabled in config: {config_path}")
+    
+    # 启动其他任务
     asyncio.create_task(recover_hanging_tasks())
     asyncio.create_task(cleanup_old_tasks())
 
@@ -553,10 +566,17 @@ async def process_pdf_and_return(
         with open(script_path, "w") as f:
             f.write("""
 import os
+import json
 from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
 from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
 from magic_pdf.config.enums import SupportedPdfParseMethod
+
+# 确保使用CUDA
+config_path = os.path.expanduser("~/magic-pdf.json")
+if not os.path.exists(config_path):
+    with open(config_path, "w") as f:
+        json.dump({{"device-mode": "cuda", "model-dir": "/app/models"}}, f, indent=2)
 
 # args
 pdf_file_name = "{}"  # 文件路径
@@ -581,7 +601,7 @@ pdf_bytes = reader.read(pdf_file_name)  # read the pdf content
 ## Create Dataset Instance
 ds = PymuDocDataset(pdf_bytes)
 
-## inference
+## inference with CUDA acceleration
 use_ocr = {}
 if ds.classify() == SupportedPdfParseMethod.OCR or use_ocr:
     infer_result = ds.apply(doc_analyze, ocr=True)
@@ -739,3 +759,38 @@ pipe_result.dump_middle_json(md_writer, f'{{name_without_suff}}_middle.json')
                 logger.info(f"Temporary files cleaned up for task {task_id}")
             except Exception as e:
                 logger.error(f"Error cleaning up temporary files: {str(e)}")
+
+@app.get("/gpu_status")
+async def gpu_status():
+    try:
+        # 检查NVIDIA驱动是否可用
+        result = subprocess.run(
+            ["nvidia-smi"], 
+            capture_output=True, 
+            text=True
+        )
+        
+        if result.returncode == 0:
+            # 检查PyTorch是否可以使用CUDA
+            import torch
+            cuda_available = torch.cuda.is_available()
+            device_count = torch.cuda.device_count() if cuda_available else 0
+            device_names = [torch.cuda.get_device_name(i) for i in range(device_count)] if cuda_available else []
+            
+            return {
+                "nvidia_smi": result.stdout,
+                "cuda_available": cuda_available,
+                "device_count": device_count,
+                "device_names": device_names,
+                "torch_version": torch.__version__
+            }
+        else:
+            return {
+                "error": "NVIDIA driver not available",
+                "details": result.stderr
+            }
+    except Exception as e:
+        return {
+            "error": "Error checking GPU status",
+            "details": str(e)
+        }
