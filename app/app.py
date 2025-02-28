@@ -506,7 +506,7 @@ async def startup_event():
     
     # 更新配置
     config["device-mode"] = "cuda"  # 启用CUDA加速
-    config["model-dir"] = "/app/models"  # 模型目录
+    config["models-dir"] = "/app/models"  # 注意这里是models-dir而不是model-dir
     
     # 保存配置
     with open(config_path, "w") as f:
@@ -586,12 +586,12 @@ if os.path.exists(config_path):
     with open(config_path, "r") as f:
         config = json.load(f)
     config["device-mode"] = "cuda"
-    config["model-dir"] = "/app/models"
+    config["models-dir"] = "/app/models"  # 注意这里是models-dir而不是model-dir
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
 else:
     with open(config_path, "w") as f:
-        json.dump({{"device-mode": "cuda", "model-dir": "/app/models"}}, f, indent=2)
+        json.dump({{"device-mode": "cuda", "models-dir": "/app/models"}}, f, indent=2)
 
 # args
 pdf_file_name = "{}"  # 文件路径

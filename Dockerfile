@@ -64,14 +64,8 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O /tmp/download_models_hf.py && \
     python3 /tmp/download_models_hf.py && \
     mkdir -p /app/models && \
-    MODEL_DIR=\$(python3 -c 'import json; print(json.load(open(\"/root/magic-pdf.json\"))[\"model-dir\"])') && \
-    if [ -d \"\$MODEL_DIR\" ]; then cp -r \"\$MODEL_DIR\"/* /app/models/; fi && \
-    if [ -d \"/root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0\" ]; then \
-        find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -type f -name \"*.bin\" -o -name \"*.json\" -o -name \"*.txt\" | xargs -I{} cp {} /app/models/; \
-    fi && \
-    if [ -d \"/root/.cache/huggingface/hub/models--hantian--layoutreader\" ]; then \
-        find /root/.cache/huggingface/hub/models--hantian--layoutreader -type f -name \"*.bin\" -o -name \"*.json\" -o -name \"*.txt\" | xargs -I{} cp {} /app/models/; \
-    fi"
+    cp -r /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/*/models/* /app/models/ || true && \
+    cp -r /root/.cache/huggingface/hub/models--hantian--layoutreader/snapshots/*/* /app/models/ || true"
 
 # Set the entry point to activate the virtual environment and run the command line tool
 ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]
