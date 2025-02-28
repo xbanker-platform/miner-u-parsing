@@ -79,7 +79,7 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     mkdir -p /app/models/layout && \
     mkdir -p /app/models/layoutreader && \
     cp -r /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/*/models/* /app/models/ && \
-    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'yolo_v8_ft.pt' -exec cp {} /app/models/MFD/YOLO/ \; && \
+    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'yolo_v8_mfd.pt' -exec cp {} /app/models/MFD/YOLO/ \; && \
     find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'unimernet_small.onnx' -exec cp {} /app/models/MFR/ \; && \
     find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'doclayout_yolo.pt' -exec cp {} /app/models/layout/ \; && \
     cp -r /root/.cache/huggingface/hub/models--hantian--layoutreader/snapshots/*/* /app/models/layoutreader/ && \
