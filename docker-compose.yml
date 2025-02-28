@@ -13,7 +13,8 @@ services:
     environment:
       - CUDA_VISIBLE_DEVICES=0
       - PYTHONUNBUFFERED=1  # 确保Python输出不被缓存
-      - UVICORN_TIMEOUT=300  # 5分钟超时
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     deploy:
       resources:
         limits:
@@ -25,7 +26,7 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
     working_dir: /app
-    command: bash -c 'source /opt/mineru_venv/bin/activate && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1'
+    command: python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
     ulimits:
       nofile:
         soft: 65536
