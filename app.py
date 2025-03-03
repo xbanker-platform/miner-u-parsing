@@ -3,10 +3,16 @@ from fastapi.responses import JSONResponse
 import os
 import tempfile
 import json
-import subprocess
 import logging
 import shutil
 from typing import Optional
+import io
+
+# 导入magic-pdf相关模块
+from magic_pdf.data.data_reader_writer import FileBasedDataWriter
+from magic_pdf.data.dataset import PymuDocDataset
+from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+from magic_pdf.config.enums import SupportedPdfParseMethod
 
 app = FastAPI(title="MinerU API", description="PDF解析服务API")
 
@@ -23,52 +29,64 @@ async def process_pdf(
     ocr: Optional[bool] = Form(False)
 ):
     try:
-        # 创建临时文件保存上传的PDF
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file_path = temp_file.name
-            shutil.copyfileobj(file.file, temp_file)
+        # 读取上传的PDF文件内容
+        pdf_bytes = await file.read()
         
-        logger.info(f"保存PDF到临时文件: {temp_file_path}")
+        # 创建临时目录
+        temp_dir = tempfile.mkdtemp()
+        output_dir = os.path.join(temp_dir, "output")
+        images_dir = os.path.join(output_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
         
-        # 准备命令行参数
-        cmd = [
-            "python3", "-m", "magic_pdf.cli", 
-            "--input", temp_file_path,
-            "--output", f"{temp_file_path}.json"
-        ]
+        # 准备文件名
+        file_name = file.filename or "uploaded.pdf"
+        name_without_suffix = os.path.splitext(file_name)[0]
         
-        if ocr:
-            cmd.append("--ocr")
+        logger.info(f"处理PDF文件: {file_name}")
         
-        # 执行命令
-        logger.info(f"执行命令: {' '.join(cmd)}")
-        process = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=dict(os.environ, MINERU_TOOLS_CONFIG_JSON="/app/magic-pdf.json")
-        )
+        # 准备数据写入器
+        image_writer = FileBasedDataWriter(images_dir)
+        md_writer = FileBasedDataWriter(output_dir)
         
-        if process.returncode != 0:
-            logger.error(f"处理失败: {process.stderr}")
-            raise HTTPException(status_code=500, detail=f"PDF处理失败: {process.stderr}")
+        # 创建数据集实例
+        ds = PymuDocDataset(pdf_bytes)
         
-        # 读取结果
+        # 推理
         try:
-            with open(f"{temp_file_path}.json", "r", encoding="utf-8") as f:
+            if ocr or ds.classify() == SupportedPdfParseMethod.OCR:
+                logger.info("使用OCR模式处理PDF")
+                infer_result = ds.apply(doc_analyze, ocr=True)
+                pipe_result = infer_result.pipe_ocr_mode(image_writer)
+            else:
+                logger.info("使用文本模式处理PDF")
+                infer_result = ds.apply(doc_analyze, ocr=False)
+                pipe_result = infer_result.pipe_txt_mode(image_writer)
+            
+            # 保存Markdown
+            pipe_result.dump_md(md_writer, f"{name_without_suffix}.md", "images")
+            
+            # 保存中间JSON
+            pipe_result.dump_middle_json(md_writer, f"{name_without_suffix}_middle.json")
+            
+            # 保存内容列表
+            pipe_result.dump_content_list(md_writer, f"{name_without_suffix}_content_list.json", "images")
+            
+            # 读取中间JSON结果
+            middle_json_path = os.path.join(output_dir, f"{name_without_suffix}_middle.json")
+            with open(middle_json_path, "r", encoding="utf-8") as f:
                 result = json.load(f)
+                
+            return JSONResponse(content=result)
+            
         except Exception as e:
-            logger.error(f"读取结果失败: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"读取结果失败: {str(e)}")
-        
-        # 清理临时文件
-        try:
-            os.unlink(temp_file_path)
-            os.unlink(f"{temp_file_path}.json")
-        except Exception as e:
-            logger.warning(f"清理临时文件失败: {str(e)}")
-        
-        return JSONResponse(content=result)
+            logger.error(f"处理PDF时出错: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"PDF处理失败: {str(e)}")
+        finally:
+            # 清理临时文件
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception as e:
+                logger.warning(f"清理临时文件失败: {str(e)}")
     
     except Exception as e:
         logger.exception("处理PDF时发生错误")
