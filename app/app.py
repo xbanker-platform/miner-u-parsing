@@ -1,10 +1,172 @@
-try:
-    import patch_magic_pdf
-    print("已加载 MagicPDF 补丁")
-except ImportError:
-    print("警告: 未找到 MagicPDF 补丁文件")
-except Exception as e:
-    print(f"加载 MagicPDF 补丁时出错: {e}")
+# MagicPDF 补丁 - 直接在 app.py 中修复 KeyError 问题
+import os
+import sys
+import json
+
+def patch_magic_pdf():
+    """直接修补 magic_pdf 模块"""
+    try:
+        # 导入 magic_pdf 模块
+        import magic_pdf.model.pdf_extract_kit
+        
+        # 保存原始的 __init__ 方法
+        original_init = magic_pdf.model.pdf_extract_kit.CustomPEKModel.__init__
+        
+        # 定义补丁版本的 __init__ 方法
+        def patched_init(self, ocr=False, show_log=False, **kwargs):
+            """处理缺少配置的情况"""
+            # 确保配置文件存在
+            ensure_config_file()
+            
+            # 创建必要的目录
+            models_dir = kwargs.get('models_dir', '/app/models')
+            os.makedirs(os.path.join(models_dir, "MFD/YOLO"), exist_ok=True)
+            os.makedirs(os.path.join(models_dir, "Layout/YOLO"), exist_ok=True)
+            os.makedirs(os.path.join(models_dir, "MFR"), exist_ok=True)
+            
+            # 创建符号链接
+            mfd_path = os.path.join(models_dir, "MFD/YOLO/yolo_v8_mfd.pt")
+            ft_path = os.path.join(models_dir, "MFD/YOLO/yolo_v8_ft.pt")
+            
+            if os.path.exists(mfd_path) and not os.path.exists(ft_path):
+                try:
+                    os.symlink(mfd_path, ft_path)
+                    print(f"已创建符号链接: {mfd_path} -> {ft_path}")
+                except Exception as link_err:
+                    print(f"创建符号链接失败: {link_err}")
+            
+            # 调用原始的 __init__ 方法
+            try:
+                original_init(self, ocr, show_log, **kwargs)
+            except KeyError as e:
+                # 捕获 KeyError 并提供默认值
+                if str(e).strip("'") == "yolo_v8_ft" or str(e).strip("'") == "yolo_v8_mfd":
+                    print(f"捕获到 KeyError: {e}，尝试使用默认配置重新初始化...")
+                    
+                    # 修改 self.configs 添加缺失的配置
+                    if not hasattr(self, 'configs'):
+                        self.configs = {}
+                    
+                    if 'weights' not in self.configs:
+                        self.configs['weights'] = {}
+                    
+                    self.configs['weights']['yolo_v8_mfd'] = "MFD/YOLO/yolo_v8_mfd.pt"
+                    self.configs['weights']['yolo_v8_ft'] = "MFD/YOLO/yolo_v8_ft.pt"
+                    self.configs['weights']['unimernet_small'] = "MFR/unimernet_small.onnx"
+                    self.configs['weights']['doclayout_yolo'] = "Layout/YOLO/doclayout_yolo.pt"
+                    
+                    # 重新调用原始方法
+                    try:
+                        original_init(self, ocr, show_log, **kwargs)
+                        print("使用修补后的配置重新初始化成功")
+                    except Exception as retry_err:
+                        print(f"重新初始化失败: {retry_err}")
+                        raise
+                else:
+                    # 其他 KeyError，重新抛出
+                    raise
+        
+        # 替换为我们的补丁版本
+        magic_pdf.model.pdf_extract_kit.CustomPEKModel.__init__ = patched_init
+        
+        print("已成功应用 MagicPDF 补丁")
+        return True
+    except ImportError:
+        print("无法导入 magic_pdf 模块，补丁未应用")
+        return False
+    except Exception as e:
+        print(f"应用补丁时出错: {e}")
+        return False
+
+def ensure_config_file():
+    """确保配置文件存在且格式正确"""
+    try:
+        config_path = "/root/magic-pdf.json"
+        
+        # 创建标准配置
+        config = {
+            "bucket_info": {
+                "bucket-name-1": ["ak", "sk", "endpoint"],
+                "bucket-name-2": ["ak", "sk", "endpoint"]
+            },
+            "models-dir": "/app/models",
+            "layoutreader-model-dir": "/app/models/layoutreader",
+            "device-mode": "cuda",
+            "layout-config": {
+                "model": "doclayout_yolo"
+            },
+            "formula-config": {
+                "mfd_model": "yolo_v8_mfd",
+                "mfr_model": "unimernet_small",
+                "enable": True
+            },
+            "table-config": {
+                "model": "rapid_table",
+                "sub_model": "slanet_plus",
+                "enable": True
+            },
+            "llm-aided-config": {
+                "formula_aided": {
+                    "api_key": "your_api_key",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "model": "qwen2.5-7b-instruct",
+                    "enable": False
+                },
+                "text_aided": {
+                    "api_key": "your_api_key",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "model": "qwen2.5-7b-instruct",
+                    "enable": False
+                },
+                "title_aided": {
+                    "api_key": "your_api_key",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "model": "qwen2.5-32b-instruct",
+                    "enable": False
+                }
+            },
+            "config_version": "1.1.1",
+            "weights": {
+                "yolo_v8_mfd": "MFD/YOLO/yolo_v8_mfd.pt",
+                "yolo_v8_ft": "MFD/YOLO/yolo_v8_ft.pt",
+                "unimernet_small": "MFR/unimernet_small.onnx",
+                "doclayout_yolo": "Layout/YOLO/doclayout_yolo.pt"
+            }
+        }
+        
+        # 如果配置文件存在，尝试读取并合并
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    existing_config = json.load(f)
+                
+                # 确保weights部分包含所有必要的键
+                if "weights" in existing_config:
+                    for key, value in config["weights"].items():
+                        if key not in existing_config["weights"]:
+                            existing_config["weights"][key] = value
+                else:
+                    existing_config["weights"] = config["weights"]
+                
+                # 使用合并后的配置
+                config = existing_config
+                print("已合并现有配置文件")
+            except json.JSONDecodeError:
+                print("现有配置文件格式错误，将使用标准配置")
+        
+        # 写入配置文件
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+        
+        print(f"配置文件已更新: {config_path}")
+        return True
+    
+    except Exception as e:
+        print(f"更新配置文件失败: {e}")
+        return False
+
+# 应用补丁
+patch_magic_pdf()
 
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
@@ -588,125 +750,110 @@ async def process_pdf_and_return(
                     break
                 buffer.write(chunk)
         
-        logger.info(f"File uploaded: {file.filename}, task_id: {task_id}")
-        
-        # 2. 处理PDF (同步处理，不使用后台任务)
-        logger.info(f"Processing PDF: {file_path} with OCR={ocr}")
-        
-        # 获取文件名（不含扩展名）
+        # 2. 创建处理脚本
         base_name = os.path.splitext(file.filename)[0]
-        logger.info(f"Base filename: {base_name}")
-        
-        # 创建Python脚本
         script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
-        with open(script_path, "w") as f:
-            f.write("""
-import os
-import json
-from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
-from magic_pdf.data.dataset import PymuDocDataset
-from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
-from magic_pdf.config.enums import SupportedPdfParseMethod
-
-# 确保使用CUDA
-config_path = os.path.expanduser("~/magic-pdf.json")
-if os.path.exists(config_path):
-    with open(config_path, "r") as f:
-        config = json.load(f)
-    config["device-mode"] = "cuda"
-    config["models-dir"] = "/app/models"  # 注意这里是models-dir而不是model-dir
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
-else:
-    with open(config_path, "w") as f:
-        json.dump({{"device-mode": "cuda", "models-dir": "/app/models"}}, f, indent=2)
-
-# args
-pdf_file_name = "{}"  # 文件路径
-name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
-
-# prepare env
-local_image_dir, local_md_dir = "{}/images", "{}"
-image_dir = "images"
-
-os.makedirs(local_image_dir, exist_ok=True)
-os.makedirs(local_md_dir, exist_ok=True)
-
-# 创建writer
-image_writer = FileBasedDataWriter(local_image_dir)
-md_writer = FileBasedDataWriter(local_md_dir)
-
-# read bytes
-reader = FileBasedDataReader("")
-pdf_bytes = reader.read(pdf_file_name)  # read the pdf content
-
-# proc
-## Create Dataset Instance
-ds = PymuDocDataset(pdf_bytes)
-
-## inference with CUDA acceleration
-use_ocr = {}
-if ds.classify() == SupportedPdfParseMethod.OCR or use_ocr:
-    infer_result = ds.apply(doc_analyze, ocr=True)
-    pipe_result = infer_result.pipe_ocr_mode(image_writer)
-else:
-    infer_result = ds.apply(doc_analyze, ocr=False)
-    pipe_result = infer_result.pipe_txt_mode(image_writer)
-
-# 绘制模型结果
-infer_result.draw_model(os.path.join(local_md_dir, f"{{name_without_suff}}_model.pdf"))
-
-# 获取模型推理结果
-model_inference_result = infer_result.get_infer_res()
-
-# 绘制布局结果
-pipe_result.draw_layout(os.path.join(local_md_dir, f"{{name_without_suff}}_layout.pdf"))
-
-# 绘制spans结果
-pipe_result.draw_span(os.path.join(local_md_dir, f"{{name_without_suff}}_spans.pdf"))
-
-# 获取markdown内容
-md_content = pipe_result.get_markdown(image_dir)
-
-# 保存markdown
-pipe_result.dump_md(md_writer, f"{{name_without_suff}}.md", image_dir)
-
-# 获取内容列表
-content_list_content = pipe_result.get_content_list(image_dir)
-
-# 保存内容列表
-pipe_result.dump_content_list(md_writer, f"{{name_without_suff}}_content_list.json", image_dir)
-
-# 获取中间json
-middle_json_content = pipe_result.get_middle_json()
-
-# 保存中间json
-pipe_result.dump_middle_json(md_writer, f'{{name_without_suff}}_middle.json')
-""".format(file_path, output_dir, output_dir, "True" if ocr else "False"))
         
-        # 执行脚本
-        start_time = datetime.now()
-        result = subprocess.run(
+        with open(script_path, "w") as f:
+            f.write(f"""
+import os
+import sys
+import time
+import json
+from magic_pdf import Dataset
+from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+
+# 确保目录存在
+os.makedirs("{output_dir}", exist_ok=True)
+os.makedirs("{output_dir}/images", exist_ok=True)
+
+# 处理PDF
+start_time = time.time()
+
+# 创建数据集
+ds = Dataset(
+    pdf_path="{file_path}",
+    output_dir="{output_dir}",
+    config_path="/root/magic-pdf.json"
+)
+
+# 应用文档分析
+try:
+    infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
+except KeyError as e:
+    # 捕获 KeyError 并尝试修复
+    print(f"捕获到 KeyError: {{e}}")
+    
+    # 修复配置
+    import magic_pdf.model.pdf_extract_kit
+    if hasattr(magic_pdf.model.pdf_extract_kit.CustomPEKModel, '_original_init'):
+        # 已经被修补过
+        pass
+    else:
+        # 保存原始的 __init__ 方法
+        magic_pdf.model.pdf_extract_kit.CustomPEKModel._original_init = magic_pdf.model.pdf_extract_kit.CustomPEKModel.__init__
+        
+        # 定义补丁版本
+        def patched_init(self, ocr=False, show_log=False, **kwargs):
+            try:
+                magic_pdf.model.pdf_extract_kit.CustomPEKModel._original_init(self, ocr, show_log, **kwargs)
+            except KeyError as e:
+                if str(e).strip("'") in ["yolo_v8_ft", "yolo_v8_mfd"]:
+                    # 修改 self.configs 添加缺失的配置
+                    if not hasattr(self, 'configs'):
+                        self.configs = {{}}
+                    
+                    if 'weights' not in self.configs:
+                        self.configs['weights'] = {{}}
+                    
+                    self.configs['weights']['yolo_v8_mfd'] = "MFD/YOLO/yolo_v8_mfd.pt"
+                    self.configs['weights']['yolo_v8_ft'] = "MFD/YOLO/yolo_v8_ft.pt"
+                    self.configs['weights']['unimernet_small'] = "MFR/unimernet_small.onnx"
+                    self.configs['weights']['doclayout_yolo'] = "Layout/YOLO/doclayout_yolo.pt"
+                    
+                    # 重新调用原始方法
+                    magic_pdf.model.pdf_extract_kit.CustomPEKModel._original_init(self, ocr, show_log, **kwargs)
+                else:
+                    raise
+        
+        # 替换为补丁版本
+        magic_pdf.model.pdf_extract_kit.CustomPEKModel.__init__ = patched_init
+    
+    # 重新尝试
+    infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
+
+# 保存处理时间
+processing_time = time.time() - start_time
+with open("{output_dir}/processing_time.txt", "w") as f:
+    f.write(str(processing_time))
+
+# 退出
+sys.exit(0)
+""")
+        
+        # 3. 执行处理脚本
+        start_time = time.time()
+        
+        # 设置超时
+        process = subprocess.Popen(
             ["python", script_path],
-            capture_output=True,
-            text=True,
-            timeout=PROCESS_TIMEOUT
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
         )
         
-        if result.returncode != 0:
-            logger.error(f"Error processing PDF: {result.stderr}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error processing PDF: {result.stderr}"
-            )
+        try:
+            stdout, stderr = process.communicate(timeout=PROCESS_TIMEOUT)
+            if process.returncode != 0:
+                logger.error(f"PDF处理失败: {stderr.decode('utf-8', errors='ignore')}")
+                raise Exception(f"PDF处理失败: {stderr.decode('utf-8', errors='ignore')}")
+        except subprocess.TimeoutExpired:
+            process.kill()
+            raise
         
-        processing_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"PDF processed in {processing_time} seconds")
+        processing_time = time.time() - start_time
         
-        # 3. 读取结果
-        # 列出目录中的所有文件，以便调试
+        # 读取处理结果
         all_files = os.listdir(output_dir)
-        logger.info(f"Files in output directory: {all_files}")
         
         # 读取Markdown
         markdown_path = os.path.join(output_dir, f"{base_name}.md")
