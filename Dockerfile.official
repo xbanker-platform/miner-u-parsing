@@ -48,7 +48,8 @@ RUN mkdir -p /models/MFD/YOLO \
     /models/layoutreader \
     /models/rapid_table \
     /models/unimernet_small \
-    /models/yolo_v8_mfd
+    /models/yolo_v8_mfd \
+    /app
 
 # 创建配置文件
 RUN echo '{\
@@ -75,8 +76,7 @@ RUN echo '{\
 }' > /app/magic-pdf.json
 
 # 复制配置文件到多个位置
-RUN mkdir -p /app && \
-    cp /root/magic-pdf.json /app/magic-pdf.json && \
+RUN cp /root/magic-pdf.json /app/magic-pdf.json && \
     mkdir -p /home/root && \
     cp /root/magic-pdf.json /home/root/magic-pdf.json
 
