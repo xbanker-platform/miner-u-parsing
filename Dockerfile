@@ -37,7 +37,8 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
 WORKDIR /app
 
 # Create necessary directories
-RUN mkdir -p /models /output /uploads /data
+RUN mkdir -p /models/MFD/YOLO /models/layoutlmv3-base-chinese /models/layoutreader /models/rapid_table /models/unimernet_small /models/yolo_v8_mfd
+RUN mkdir -p /output /uploads /data
 
 # Create configuration file
 RUN echo '{\
@@ -75,7 +76,7 @@ COPY scripts /app/scripts
 
 # 创建启动脚本
 COPY app/start_app.sh /app/start_app.sh
-RUN chmod +x /app/start_app.sh
+RUN chmod +x /app/start_app.sh /app/scripts/download_models.sh
 
 # Expose port
 EXPOSE 8000

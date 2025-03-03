@@ -74,6 +74,24 @@ for CONFIG_PATH in "${CONFIG_PATHS[@]}"; do
     fi
 done
 
+# 检查模型文件是否存在，如果不存在则下载
+if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
+    echo "模型文件不存在，开始下载..."
+    
+    # 创建必要的目录
+    mkdir -p /models/MFD/YOLO
+    
+    # 下载模型文件
+    echo "下载 yolo_v8_ft.pt 模型..."
+    wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -O /models/MFD/YOLO/yolo_v8_ft.pt
+    
+    echo "模型下载完成！"
+fi
+
+# 显示模型目录结构
+echo "模型目录结构："
+find /models -type f | sort
+
 # 启动应用
 echo "启动应用..."
 exec uvicorn app:app --host 0.0.0.0 --port 8000 
