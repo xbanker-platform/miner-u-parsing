@@ -19,11 +19,17 @@ RUN apt-get update && \
 # Create a virtual environment for MinerU
 RUN python3 -m venv /opt/mineru_venv
 
+# Create requirements.txt file
+RUN echo "magic-pdf[full]" > /requirements.txt
+RUN echo "huggingface_hub" >> /requirements.txt
+RUN echo "fastapi" >> /requirements.txt
+RUN echo "uvicorn" >> /requirements.txt
+RUN echo "python-multipart" >> /requirements.txt
+
 # Activate the virtual environment and install necessary Python packages
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install --upgrade pip && \
-    pip3 install --no-cache-dir -U magic-pdf[full] --extra-index-url https://wheels.myhloli.com && \
-    pip3 install --no-cache-dir huggingface_hub fastapi uvicorn python-multipart && \
+    pip3 install --no-cache-dir -r /requirements.txt --extra-index-url https://wheels.myhloli.com && \
     pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
 
 # Create a working directory
