@@ -2,10 +2,11 @@
     "bucket_info":{},
     "models-dir":"/models",
     "layoutreader-model-dir":"/models/layoutreader",
-    "device-mode":"cuda",
+    "device-mode":"cpu",
     "layout-config": {
         "model": "layoutlmv3",
-        "model_path": "/models/layoutlmv3-base-chinese"
+        "model_path": "/models/layoutlmv3-base-chinese",
+        "enable": false
     },
     "formula-config": {
         "mfd_model": "yolo_v8_mfd",
