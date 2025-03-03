@@ -827,6 +827,9 @@ async def process_pdf_and_return(
         base_name = os.path.splitext(file.filename)[0]
         script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
         
+        # 确保布尔值使用正确的Python语法（大写True/False）
+        ocr_value = "True" if ocr else "False"
+        
         with open(script_path, "w") as f:
             f.write(f"""
 import os
@@ -863,7 +866,7 @@ ds = PymuDocDataset(pdf_bytes)
 
 ## inference
 try:
-    if ds.classify() == SupportedPdfParseMethod.OCR or {str(ocr).lower()}:
+    if ds.classify() == SupportedPdfParseMethod.OCR or {ocr_value}:
         infer_result = ds.apply(doc_analyze, ocr=True)
         ## pipeline
         pipe_result = infer_result.pipe_ocr_mode(image_writer)
@@ -911,7 +914,7 @@ except KeyError as e:
         magic_pdf.model.pdf_extract_kit.CustomPEKModel.__init__ = patched_init
     
     # 重新尝试
-    if ds.classify() == SupportedPdfParseMethod.OCR or {str(ocr).lower()}:
+    if ds.classify() == SupportedPdfParseMethod.OCR or {ocr_value}:
         infer_result = ds.apply(doc_analyze, ocr=True)
         ## pipeline
         pipe_result = infer_result.pipe_ocr_mode(image_writer)
