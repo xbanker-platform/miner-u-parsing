@@ -25,8 +25,8 @@ if [ "$CONFIG_FOUND" = false ]; then
         if [ -w "$CONFIG_DIR" ]; then
             echo '{
                 "bucket_info":{},
-                "models-dir":"/models",
-                "layoutreader-model-dir":"/models/layoutreader",
+                "models-dir":"/tmp/models",
+                "layoutreader-model-dir":"/tmp/models/layoutreader",
                 "device-mode":"cuda",
                 "layout-config": {
                     "model": "layoutlmv3"
@@ -74,44 +74,36 @@ for CONFIG_PATH in "${CONFIG_PATHS[@]}"; do
     fi
 done
 
-# 检查模型文件是否存在
-echo "检查模型文件..."
+# 创建临时模型目录并复制模型文件
+echo "创建临时模型目录..."
+mkdir -p /tmp/models/MFD/YOLO
 
-# 检查 yolo_v8_ft.pt 文件
-if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
-    echo "警告: /models/MFD/YOLO/yolo_v8_ft.pt 文件不存在"
+# 检查是否存在 yolo_v8_mfd.pt 文件并复制
+if [ -f "/models/MFD/YOLO/yolo_v8_mfd.pt" ]; then
+    echo "复制 yolo_v8_mfd.pt 到临时目录..."
+    cp /models/MFD/YOLO/yolo_v8_mfd.pt /tmp/models/MFD/YOLO/
     
-    # 检查是否存在 yolo_v8_mfd.pt 文件
-    if [ -f "/models/MFD/YOLO/yolo_v8_mfd.pt" ]; then
-        echo "找到 /models/MFD/YOLO/yolo_v8_mfd.pt 文件，创建符号链接..."
-        # 创建符号链接
-        ln -sf /models/MFD/YOLO/yolo_v8_mfd.pt /models/MFD/YOLO/yolo_v8_ft.pt 2>/dev/null || true
-        
-        if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
-            echo "无法创建符号链接，尝试在容器内部创建副本..."
-            # 如果无法创建符号链接（可能是因为只读挂载），则尝试在容器内部创建副本
-            mkdir -p /tmp/models/MFD/YOLO
-            cp /models/MFD/YOLO/yolo_v8_mfd.pt /tmp/models/MFD/YOLO/yolo_v8_ft.pt
-            
-            # 修改配置文件中的模型目录路径
-            sed -i 's|"models-dir":"/models"|"models-dir":"/tmp/models"|g' "$MINERU_TOOLS_CONFIG_JSON"
-            echo "已将模型目录路径修改为 /tmp/models"
-        fi
-    else
-        echo "错误: 找不到任何可用的模型文件！"
-        exit 1
-    fi
+    # 创建 yolo_v8_ft.pt 文件（复制 yolo_v8_mfd.pt）
+    echo "创建 yolo_v8_ft.pt 文件..."
+    cp /tmp/models/MFD/YOLO/yolo_v8_mfd.pt /tmp/models/MFD/YOLO/yolo_v8_ft.pt
+    
+    echo "模型文件已准备就绪"
+else
+    echo "错误: 找不到源模型文件 /models/MFD/YOLO/yolo_v8_mfd.pt"
+    exit 1
 fi
+
+# 修改所有配置文件中的模型目录路径
+for CONFIG_PATH in "${CONFIG_PATHS[@]}"; do
+    if [ -f "$CONFIG_PATH" ]; then
+        echo "更新配置文件 $CONFIG_PATH 中的模型目录路径..."
+        sed -i 's|"models-dir":"/models"|"models-dir":"/tmp/models"|g' "$CONFIG_PATH"
+    fi
+done
 
 # 显示模型目录结构
-echo "模型目录结构："
-find /models -type f | sort
-
-# 如果使用了临时目录，也显示临时目录结构
-if [ -d "/tmp/models" ]; then
-    echo "临时模型目录结构："
-    find /tmp/models -type f | sort
-fi
+echo "临时模型目录结构："
+find /tmp/models -type f | sort
 
 # 启动应用
 echo "启动应用..."
