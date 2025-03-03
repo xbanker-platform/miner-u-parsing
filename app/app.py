@@ -838,6 +838,9 @@ from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
 from magic_pdf.config.enums import SupportedPdfParseMethod
 
+# 记录开始时间
+start_time = time.time()
+
 # args
 pdf_file_name = "{file_path}"
 name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
@@ -949,7 +952,7 @@ sys.exit(0)
         
         # 设置超时
         process = subprocess.Popen(
-            ["python", script_path],
+            ["bash", "-c", "source /opt/mineru_venv/bin/activate && python " + script_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
