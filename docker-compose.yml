@@ -11,7 +11,7 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/app
-      - ./models:/models
+      - ./models:/models:ro
       - ./output:/output
       - ./uploads:/uploads
       - ./data:/data
@@ -29,7 +29,7 @@ services:
       - PYTHONUNBUFFERED=1
       - UVICORN_TIMEOUT=300
     working_dir: /app
-    command: /app/start_app.sh
+    command: bash -c "chmod +x /app/start_app.sh && /app/start_app.sh"
     ulimits:
       nofile:
         soft: 65536

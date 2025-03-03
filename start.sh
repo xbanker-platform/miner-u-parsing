@@ -8,7 +8,30 @@ docker rmi $(docker images -q mineru:latest) 2>/dev/null || true
 
 # 创建必要的目录
 echo "创建必要的目录..."
-mkdir -p app models output uploads scripts data config
+mkdir -p app models/MFD/YOLO models/layoutlmv3-base-chinese models/layoutreader models/rapid_table models/unimernet_small models/yolo_v8_mfd output uploads scripts data config
+
+# 检查模型文件是否存在，如果不存在则复制或下载
+echo "检查模型文件..."
+if [ ! -f "models/MFD/YOLO/yolo_v8_ft.pt" ]; then
+    echo "模型文件不存在，尝试复制或下载..."
+    
+    # 如果服务器上有模型文件，则复制
+    if [ -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
+        echo "从服务器复制模型文件..."
+        cp /models/MFD/YOLO/yolo_v8_ft.pt models/MFD/YOLO/
+    else
+        # 否则下载模型文件
+        echo "下载模型文件..."
+        wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -O models/MFD/YOLO/yolo_v8_ft.pt
+    fi
+fi
+
+# 创建符号链接确保路径正确
+ln -sf models/yolo_v8_mfd models/MFD/YOLO/yolo_v8_mfd 2>/dev/null || true
+
+# 显示模型目录结构
+echo "模型目录结构："
+find models -type f | sort
 
 # 创建下载脚本
 echo "创建下载脚本..."
