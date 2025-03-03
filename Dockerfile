@@ -34,18 +34,6 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install -r requirements.txt --extra-index-url https://wheels.myhloli.com && \
     pip3 install paddlepaddle-gpu==3.0.0rc1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
 
-# Copy the configuration file template and install magic-pdf latest
-RUN /bin/bash -c "wget https://github.com/opendatalab/MinerU/raw/master/magic-pdf.template.json && \
-    cp magic-pdf.template.json /root/magic-pdf.json && \
-    source /opt/mineru_venv/bin/activate && \
-    pip3 install -U magic-pdf"
-
-# Download models and update the configuration file
-RUN /bin/bash -c "pip3 install huggingface_hub && \
-    wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O download_models.py && \
-    python3 download_models.py && \
-    sed -i 's|cpu|cuda|g' /root/magic-pdf.json"
-
 # Install FastAPI and related dependencies
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install fastapi==0.104.1 uvicorn==0.23.2 python-multipart==0.0.6 pydantic==2.4.2"
@@ -64,42 +52,24 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip install paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
 
-# 重新安装magic-pdf以确保它使用正确的依赖
+# 安装magic-pdf
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
-    pip uninstall -y magic-pdf && \
     pip install -U magic-pdf"
 
-# Download model files
-RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
-    pip install huggingface_hub && \
-    wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O /tmp/download_models_hf.py && \
-    python3 /tmp/download_models_hf.py && \
-    mkdir -p /app/models/MFD/YOLO && \
-    mkdir -p /app/models/MFR && \
-    mkdir -p /app/models/layout && \
-    mkdir -p /app/models/layoutreader && \
-    cp -r /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/*/models/* /app/models/ && \
-    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'yolo_v8_mfd.pt' -exec cp {} /app/models/MFD/YOLO/ \; && \
-    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'unimernet_small.onnx' -exec cp {} /app/models/MFR/ \; && \
-    find /root/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0 -name 'doclayout_yolo.pt' -exec cp {} /app/models/layout/ \; && \
-    cp -r /root/.cache/huggingface/hub/models--hantian--layoutreader/snapshots/*/* /app/models/layoutreader/ && \
-    ls -R /app/models"
-
-# 创建工作目录
+# Create a working directory
 WORKDIR /app
 
-# 复制所有脚本和配置文件
+# Copy all scripts and configuration files
 COPY scripts/ /app/scripts/
 COPY tests/ /app/tests/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# 设置脚本权限
-RUN chmod +x /app/scripts/*.sh
-
-# 复制自定义配置文件
 COPY magic-pdf.json /root/magic-pdf.json
 
+# Set script permissions
+RUN chmod +x /app/scripts/*.sh
 
-
-# 设置入口点
+# Set entry point
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+
+# Set default command
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
