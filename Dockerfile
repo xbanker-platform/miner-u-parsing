@@ -13,6 +13,7 @@ RUN apt-get update && \
         wget \
         libreoffice \
         git \
+        ccache \
         && apt-get clean \
         && rm -rf /var/lib/apt/lists/*
 
@@ -68,6 +69,48 @@ RUN echo '{\
     "config_version": "1.0.0"\
 }' > /app/magic-pdf.json
 
+# 复制配置文件到用户目录
+RUN cp /app/magic-pdf.json /root/magic-pdf.json
+
+# 创建启动脚本
+RUN echo '#!/bin/bash\n\
+\n\
+# 确保配置文件存在\n\
+if [ ! -f "/app/magic-pdf.json" ]; then\n\
+    echo "配置文件不存在，创建默认配置..."\n\
+    echo '"'"'{\n\
+        "bucket_info":{},\n\
+        "models-dir":"/models",\n\
+        "layoutreader-model-dir":"/models/layoutreader",\n\
+        "device-mode":"cuda",\n\
+        "layout-config": {\n\
+            "model": "layoutlmv3"\n\
+        },\n\
+        "formula-config": {\n\
+            "mfd_model": "yolo_v8_mfd",\n\
+            "mfr_model": "unimernet_small",\n\
+            "enable": true\n\
+        },\n\
+        "table-config": {\n\
+            "model": "rapid_table",\n\
+            "enable": true,\n\
+            "max_time": 400\n\
+        },\n\
+        "config_version": "1.0.0"\n\
+    }'"'"' > /app/magic-pdf.json\n\
+    \n\
+    # 同时复制到用户目录\n\
+    cp /app/magic-pdf.json /root/magic-pdf.json\n\
+fi\n\
+\n\
+# 设置环境变量\n\
+export MINERU_TOOLS_CONFIG_JSON=/app/magic-pdf.json\n\
+\n\
+# 启动应用\n\
+exec uvicorn app:app --host 0.0.0.0 --port 8000\n\
+' > /app/start_app.sh
+RUN chmod +x /app/start_app.sh
+
 # Expose port
 EXPOSE 8000
 
@@ -75,4 +118,4 @@ EXPOSE 8000
 ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]
 
 # Start command
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/start_app.sh"]

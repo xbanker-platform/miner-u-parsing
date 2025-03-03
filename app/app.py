@@ -1,3 +1,8 @@
+import os
+
+# 设置环境变量，指定配置文件路径
+os.environ["MINERU_TOOLS_CONFIG_JSON"] = "/app/magic-pdf.json"
+
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
