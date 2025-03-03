@@ -407,17 +407,17 @@ except ImportError:
         try:
             # 查找可能的模块路径
             import magic_pdf
-            print(f"magic_pdf 模块路径: {magic_pdf.__file__}")
-            print(f"magic_pdf 模块内容: {dir(magic_pdf)}")
+            print(f"magic_pdf 模块路径: {{magic_pdf.__file__}}")
+            print(f"magic_pdf 模块内容: {{dir(magic_pdf)}}")
             
             # 尝试导入子模块
             import magic_pdf.data
-            print(f"magic_pdf.data 模块内容: {dir(magic_pdf.data)}")
+            print(f"magic_pdf.data 模块内容: {{dir(magic_pdf.data)}}")
             
             # 使用正确的导入路径
             from magic_pdf.data.dataset import Dataset
         except Exception as e:
-            print(f"导入 Dataset 失败: {e}")
+            print(f"导入 Dataset 失败: {{e}}")
             sys.exit(1)
 
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
@@ -441,7 +441,7 @@ try:
     infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
 except KeyError as e:
     # 捕获 KeyError 并尝试修复
-    print(f"捕获到 KeyError: {e}")
+    print(f"捕获到 KeyError: {{e}}")
     
     # 修复配置
     import magic_pdf.model.pdf_extract_kit
@@ -460,10 +460,10 @@ except KeyError as e:
                 if str(e).strip("'") in ["yolo_v8_ft", "yolo_v8_mfd"]:
                     # 修改 self.configs 添加缺失的配置
                     if not hasattr(self, 'configs'):
-                        self.configs = {}
+                        self.configs = {{}}
                     
                     if 'weights' not in self.configs:
-                        self.configs['weights'] = {}
+                        self.configs['weights'] = {{}}
                     
                     self.configs['weights']['yolo_v8_mfd'] = "MFD/YOLO/yolo_v8_mfd.pt"
                     self.configs['weights']['yolo_v8_ft'] = "MFD/YOLO/yolo_v8_ft.pt"
@@ -827,17 +827,17 @@ except ImportError:
         try:
             # 查找可能的模块路径
             import magic_pdf
-            print(f"magic_pdf 模块路径: {magic_pdf.__file__}")
-            print(f"magic_pdf 模块内容: {dir(magic_pdf)}")
+            print(f"magic_pdf 模块路径: {{magic_pdf.__file__}}")
+            print(f"magic_pdf 模块内容: {{dir(magic_pdf)}}")
             
             # 尝试导入子模块
             import magic_pdf.data
-            print(f"magic_pdf.data 模块内容: {dir(magic_pdf.data)}")
+            print(f"magic_pdf.data 模块内容: {{dir(magic_pdf.data)}}")
             
             # 使用正确的导入路径
             from magic_pdf.data.dataset import Dataset
         except Exception as e:
-            print(f"导入 Dataset 失败: {e}")
+            print(f"导入 Dataset 失败: {{e}}")
             sys.exit(1)
 
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
@@ -861,7 +861,7 @@ try:
     infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
 except KeyError as e:
     # 捕获 KeyError 并尝试修复
-    print(f"捕获到 KeyError: {e}")
+    print(f"捕获到 KeyError: {{e}}")
     
     # 修复配置
     import magic_pdf.model.pdf_extract_kit
@@ -880,10 +880,10 @@ except KeyError as e:
                 if str(e).strip("'") in ["yolo_v8_ft", "yolo_v8_mfd"]:
                     # 修改 self.configs 添加缺失的配置
                     if not hasattr(self, 'configs'):
-                        self.configs = {}
+                        self.configs = {{}}
                     
                     if 'weights' not in self.configs:
-                        self.configs['weights'] = {}
+                        self.configs['weights'] = {{}}
                     
                     self.configs['weights']['yolo_v8_mfd'] = "MFD/YOLO/yolo_v8_mfd.pt"
                     self.configs['weights']['yolo_v8_ft'] = "MFD/YOLO/yolo_v8_ft.pt"
