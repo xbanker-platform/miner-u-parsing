@@ -2,6 +2,22 @@
 import os
 import sys
 import json
+import time  # 添加 time 模块导入
+import uuid  # 添加 uuid 模块导入
+import shutil  # 添加 shutil 模块导入
+import subprocess  # 添加 subprocess 模块导入
+import logging  # 添加 logging 模块导入
+
+# 设置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)8s] %(filename)s:%(lineno)d - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("mineru-api")
+
+# 设置处理超时时间
+PROCESS_TIMEOUT = 300  # 5分钟
 
 def patch_magic_pdf():
     """直接修补 magic_pdf 模块"""
@@ -215,7 +231,6 @@ app.add_middleware(
 pdf_executor = ThreadPoolExecutor(max_workers=4)  # 增加工作线程数
 
 # 添加超时设置
-PROCESS_TIMEOUT = 300  # 5分钟超时
 REQUEST_TIMEOUT = 60   # 1分钟请求超时
 
 # 存储任务状态和结果
