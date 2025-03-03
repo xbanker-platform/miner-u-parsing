@@ -1,16 +1,19 @@
-version: '3'
+version: '3.8'
+
 services:
   mineru:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mineru-service
+    restart: unless-stopped
     ports:
-      - "8000:8000"  # 暂时对外暴露端口以便调试
+      - "8000:8000"
     volumes:
       - ./app:/app
-      - ./data:/data
-    environment:
-      - CUDA_VISIBLE_DEVICES=0
-      - PYTHONUNBUFFERED=1  # 确保Python输出不被缓存
-      - UVICORN_TIMEOUT=300  # 5分钟超时
+      - ./models:/models
+      - ./output:/output
+      - ./uploads:/uploads
     deploy:
       resources:
         reservations:
@@ -18,7 +21,14 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    restart: "no"  # 暂时禁用自动重启以便调试
+    environment:
+      - MINERU_TOOLS_CONFIG_JSON=/app/magic-pdf.json
+    volumes:
+      - ./data:/data
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONUNBUFFERED=1  # 确保Python输出不被缓存
+      - UVICORN_TIMEOUT=300  # 5分钟超时
     working_dir: /app
     command: bash -c 'source /opt/mineru_venv/bin/activate && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --log-level debug'
     ulimits:
