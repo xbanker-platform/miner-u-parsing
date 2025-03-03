@@ -13,21 +13,36 @@ mkdir -p app models/MFD/YOLO models/layoutlmv3-base-chinese models/layoutreader 
 # 检查模型文件是否存在，如果不存在则复制或下载
 echo "检查模型文件..."
 if [ ! -f "models/MFD/YOLO/yolo_v8_ft.pt" ]; then
-    echo "模型文件不存在，尝试复制或下载..."
+    echo "yolo_v8_ft.pt 模型文件不存在，尝试复制或下载..."
     
     # 如果服务器上有模型文件，则复制
     if [ -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
-        echo "从服务器复制模型文件..."
+        echo "从服务器复制 yolo_v8_ft.pt 模型文件..."
         cp /models/MFD/YOLO/yolo_v8_ft.pt models/MFD/YOLO/
     else
         # 否则下载模型文件
-        echo "下载模型文件..."
+        echo "下载 yolo_v8_ft.pt 模型文件..."
         wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -O models/MFD/YOLO/yolo_v8_ft.pt
     fi
 fi
 
-# 创建符号链接确保路径正确
-ln -sf models/yolo_v8_mfd models/MFD/YOLO/yolo_v8_mfd 2>/dev/null || true
+# 检查 yolo_v8_mfd.pt 模型文件
+if [ ! -f "models/MFD/YOLO/yolo_v8_mfd.pt" ]; then
+    echo "yolo_v8_mfd.pt 模型文件不存在，尝试复制或下载..."
+    
+    # 如果服务器上有模型文件，则复制
+    if [ -f "/models/MFD/YOLO/yolo_v8_mfd.pt" ]; then
+        echo "从服务器复制 yolo_v8_mfd.pt 模型文件..."
+        cp /models/MFD/YOLO/yolo_v8_mfd.pt models/MFD/YOLO/
+    else
+        # 否则下载模型文件
+        echo "下载 yolo_v8_mfd.pt 模型文件..."
+        wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_mfd.pt -O models/MFD/YOLO/yolo_v8_mfd.pt
+    fi
+fi
+
+# 确保文件权限正确
+chmod -R 755 models
 
 # 显示模型目录结构
 echo "模型目录结构："
@@ -156,6 +171,12 @@ if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
     wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -O /models/MFD/YOLO/yolo_v8_ft.pt
 fi
 
+# 下载 yolo_v8_mfd.pt 模型
+if [ ! -f "/models/MFD/YOLO/yolo_v8_mfd.pt" ]; then
+    echo "下载 yolo_v8_mfd.pt 模型..."
+    wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_mfd.pt -O /models/MFD/YOLO/yolo_v8_mfd.pt
+fi
+
 # 下载其他必要的模型文件
 if [ ! -d "/models/layoutlmv3-base-chinese/pytorch_model.bin" ]; then
     echo "下载 layoutlmv3-base-chinese 模型..."
@@ -163,9 +184,6 @@ if [ ! -d "/models/layoutlmv3-base-chinese/pytorch_model.bin" ]; then
 fi
 
 echo "模型下载完成！"
-
-# 创建符号链接确保路径正确
-ln -sf /models/yolo_v8_mfd /models/MFD/YOLO/yolo_v8_mfd 2>/dev/null || true
 
 # 显示模型目录结构
 echo "模型目录结构："
@@ -253,7 +271,7 @@ done
 
 # 检查模型文件是否存在，如果不存在则下载
 if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
-    echo "模型文件不存在，开始下载..."
+    echo "yolo_v8_ft.pt 模型文件不存在，开始下载..."
     
     # 创建必要的目录
     mkdir -p /models/MFD/YOLO
@@ -261,6 +279,20 @@ if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
     # 下载模型文件
     echo "下载 yolo_v8_ft.pt 模型..."
     wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -O /models/MFD/YOLO/yolo_v8_ft.pt
+    
+    echo "模型下载完成！"
+fi
+
+# 检查 yolo_v8_mfd.pt 模型文件
+if [ ! -f "/models/MFD/YOLO/yolo_v8_mfd.pt" ]; then
+    echo "yolo_v8_mfd.pt 模型文件不存在，开始下载..."
+    
+    # 创建必要的目录
+    mkdir -p /models/MFD/YOLO
+    
+    # 下载模型文件
+    echo "下载 yolo_v8_mfd.pt 模型..."
+    wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_mfd.pt -O /models/MFD/YOLO/yolo_v8_mfd.pt
     
     echo "模型下载完成！"
 fi
