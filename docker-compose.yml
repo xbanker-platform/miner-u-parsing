@@ -28,7 +28,11 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
     working_dir: /app
-    command: python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
+    command: >
+      bash -c "
+        source /opt/mineru_venv/bin/activate &&
+        python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
+      "
     ulimits:
       nofile:
         soft: 65536
