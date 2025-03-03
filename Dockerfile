@@ -9,6 +9,7 @@ RUN apt-get update && \
     apt-get install -y \
         python3 \
         python3-pip \
+        python3-venv \
         wget \
         libreoffice \
         git \
@@ -33,11 +34,11 @@ COPY app /app
 COPY scripts /app/scripts
 
 # Create necessary directories
-RUN mkdir -p /models /output /uploads
+RUN mkdir -p /models /output /uploads /data
 
 # Download model files
 COPY scripts/download_models_hf.py /app/download_models_hf.py
-RUN python3 /app/download_models_hf.py
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && python3 /app/download_models_hf.py"
 
 # Create configuration file
 RUN echo '{\
