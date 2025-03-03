@@ -1,20 +1,5 @@
-#!/bin/bash
-# 文件名: start.sh
-
-# 设置错误时退出
-set -e
-
-# 显示欢迎信息
-echo "=== MinerU 一键启动脚本 ==="
-echo "正在准备环境..."
-
-# 确保目录存在
-mkdir -p app data models scripts tests
-
-# 创建补丁文件
-cat > app/patch_magic_pdf.py << 'EOF'
 #!/usr/bin/env python3
-# 文件名: patch_magic_pdf.py
+# 文件名: app/patch_magic_pdf.py
 """
 MagicPDF 补丁文件 - 在不修改原始代码的情况下修复 KeyError 问题
 """
@@ -196,64 +181,4 @@ def apply_patch():
         return False
 
 # 自动应用补丁
-apply_patch()
-EOF
-
-# 确保脚本有执行权限
-chmod +x app/patch_magic_pdf.py
-
-# 创建 app.py 的补丁
-if [ -f "app/app.py" ]; then
-    # 检查是否已经添加了补丁导入
-    if ! grep -q "import patch_magic_pdf" app/app.py; then
-        # 在文件开头添加补丁导入
-        sed -i '1i\
-# 导入 MagicPDF 补丁\
-try:\
-    import patch_magic_pdf\
-    print("已加载 MagicPDF 补丁")\
-except ImportError:\
-    print("警告: 未找到 MagicPDF 补丁文件")\
-except Exception as e:\
-    print(f"加载 MagicPDF 补丁时出错: {e}")\
-' app/app.py
-        echo "已更新 app.py 添加补丁导入"
-    else
-        echo "app.py 已包含补丁导入"
-    fi
-else
-    echo "警告: 未找到 app.py 文件"
-fi
-
-# 检查 Docker 和 Docker Compose 是否安装
-if ! command -v docker &> /dev/null; then
-    echo "错误: Docker 未安装，请先安装 Docker"
-    exit 1
-fi
-
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo "错误: Docker Compose 未安装，请先安装 Docker Compose"
-    exit 1
-fi
-
-# 检查 NVIDIA Docker 是否安装
-if ! command -v nvidia-smi &> /dev/null; then
-    echo "警告: NVIDIA 驱动未找到，GPU 加速可能不可用"
-fi
-
-# 停止并移除现有容器
-echo "停止现有容器..."
-docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
-
-# 构建并启动容器
-echo "构建并启动容器..."
-docker-compose up -d --build || docker compose up -d --build
-
-# 显示容器状态
-echo "容器状态:"
-docker-compose ps || docker compose ps
-
-echo "=== MinerU 已启动 ==="
-echo "API 地址: http://localhost:8000"
-echo "Web 界面: http://localhost:80"
-echo "查看日志: docker-compose logs -f mineru"
+apply_patch() 

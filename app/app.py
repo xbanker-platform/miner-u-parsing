@@ -1,3 +1,11 @@
+try:
+    import patch_magic_pdf
+    print("已加载 MagicPDF 补丁")
+except ImportError:
+    print("警告: 未找到 MagicPDF 补丁文件")
+except Exception as e:
+    print(f"加载 MagicPDF 补丁时出错: {e}")
+
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
