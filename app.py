@@ -74,6 +74,14 @@ async def process_pdf(
         logger.exception("处理PDF时发生错误")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/process_pdf_and_return/")
+async def process_pdf_and_return(
+    file: UploadFile = File(...),
+    ocr: Optional[bool] = Form(False)
+):
+    """兼容旧API的端点"""
+    return await process_pdf(file, ocr)
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"} 
