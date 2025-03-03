@@ -1,8 +1,27 @@
 #!/bin/bash
 set -e
 
+# 清理不必要的缓存文件以释放空间
+echo "Cleaning up to free disk space..."
+rm -rf /root/.cache/pip/* || true
+apt-get clean || true
+find /tmp -type f -delete || true
+find /var/log -type f -delete || true
+find /var/cache -type f -delete || true
+find /root/.cache -type d -name "torch_extensions" -exec rm -rf {} + || true
+find /root/.cache -type d -name "pip" -exec rm -rf {} + || true
+find /root/.cache -type d -name "huggingface" -exec rm -rf {} + || true
+
 # 激活虚拟环境
 source /opt/mineru_venv/bin/activate
+
+# 检查PaddlePaddle是否安装
+python3 -c "import paddle" 2>/dev/null || {
+  echo "PaddlePaddle not installed, trying to install..."
+  pip install paddlepaddle-gpu==2.5.2 -f https://pypi.tuna.tsinghua.edu.cn/simple/paddlepaddle-gpu/ || \
+  pip install paddlepaddle==2.5.2 || \
+  echo "Failed to install PaddlePaddle, OCR functionality may be limited"
+}
 
 # 确保配置文件存在
 if [ ! -f "/root/magic-pdf.json" ]; then
@@ -52,6 +71,7 @@ if [ ! -f "/root/magic-pdf.json" ]; then
   "config_version": "1.1.1",
   "weights": {
     "yolo_v8_mfd": "MFD/YOLO/yolo_v8_mfd.pt",
+    "yolo_v8_ft": "MFD/YOLO/yolo_v8_ft.pt",
     "unimernet_small": "MFR/unimernet_small.onnx",
     "doclayout_yolo": "Layout/YOLO/doclayout_yolo.pt"
   }
@@ -180,6 +200,13 @@ ls -la /app/models/MFR/ || echo "MFR models not found"
 # 检查配置文件
 echo "Checking configuration..."
 cat /root/magic-pdf.json
+
+# 如果外部存储可用，则使用外部存储来存放模型
+if [ -d "/external_storage" ]; then
+  echo "Using external storage for models..."
+  mkdir -p /external_storage/models
+  ln -sf /external_storage/models /app/models
+fi
 
 # 启动应用
 echo "Starting application..."

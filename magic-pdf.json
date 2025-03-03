@@ -42,6 +42,7 @@
   "config_version": "1.1.1",
   "weights": {
     "yolo_v8_mfd": "MFD/YOLO/yolo_v8_mfd.pt",
+    "yolo_v8_ft": "MFD/YOLO/yolo_v8_ft.pt",
     "unimernet_small": "MFR/unimernet_small.onnx",
     "doclayout_yolo": "Layout/YOLO/doclayout_yolo.pt"
   }

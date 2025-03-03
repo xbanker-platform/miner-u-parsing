@@ -31,14 +31,13 @@ RUN python3 -m venv /opt/mineru_venv
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install --upgrade pip && \
     wget https://github.com/opendatalab/MinerU/raw/master/docker/global/requirements.txt -O requirements.txt && \
-    pip3 install -r requirements.txt --extra-index-url https://wheels.myhloli.com && \
-    pip3 install paddlepaddle-gpu==3.0.0rc1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
+    pip3 install -r requirements.txt --extra-index-url https://wheels.myhloli.com"
 
 # Install FastAPI and related dependencies
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install fastapi==0.104.1 uvicorn==0.23.2 python-multipart==0.0.6 pydantic==2.4.2"
 
-# 在安装其他包之前，先安装正确版本的NumPy和OpenCV
+# Install correct versions of NumPy and OpenCV first
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip uninstall -y numpy opencv-python paddle paddlepaddle-gpu && \
     pip install numpy==1.24.3 && \
@@ -48,11 +47,12 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip install --force-reinstall torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu118"
 
-# Install support for CUDA PaddlePaddle (for OCR acceleration)
+# 尝试安装CPU版本的PaddlePaddle
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
-    pip install paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
+    pip install paddlepaddle==2.5.2 || \
+    echo 'Failed to install PaddlePaddle, OCR functionality may be limited'"
 
-# 安装magic-pdf
+# Install magic-pdf
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip install -U magic-pdf"
 
