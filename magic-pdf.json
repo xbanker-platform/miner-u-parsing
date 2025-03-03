@@ -1,0 +1,20 @@
+{
+    "bucket_info":{},
+    "models-dir":"/models",
+    "layoutreader-model-dir":"/models/layoutreader",
+    "device-mode":"cuda",
+    "layout-config": {
+        "model": "layoutlmv3"
+    },
+    "formula-config": {
+        "mfd_model": "yolo_v8_mfd",
+        "mfr_model": "unimernet_small",
+        "enable": false
+    },
+    "table-config": {
+        "model": "rapid_table",
+        "enable": true,
+        "max_time": 400
+    },
+    "config_version": "1.0.0"
+} 
