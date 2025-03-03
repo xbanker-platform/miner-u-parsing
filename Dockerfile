@@ -99,65 +99,7 @@ RUN chmod +x /app/scripts/*.sh
 # 复制自定义配置文件
 COPY magic-pdf.json /root/magic-pdf.json
 
-# 或者，如果你想在构建时创建配置文件：
-RUN cat > /root/magic-pdf.json << 'EOL'
-{
-  "bucket_info": {
-    "bucket-name-1": [
-      "ak",
-      "sk",
-      "endpoint"
-    ],
-    "bucket-name-2": [
-      "ak",
-      "sk",
-      "endpoint"
-    ]
-  },
-  "models-dir": "/app/models",
-  "layoutreader-model-dir": "/app/models/layoutreader",
-  "device-mode": "cuda",
-  "layout-config": {
-    "model": "doclayout_yolo"
-  },
-  "formula-config": {
-    "mfd_model": "yolo_v8_ft",
-    "mfr_model": "unimernet_small",
-    "enable": true
-  },
-  "table-config": {
-    "model": "rapid_table",
-    "sub_model": "slanet_plus",
-    "enable": true
-  },
-  "llm-aided-config": {
-    "formula_aided": {
-      "api_key": "your_api_key",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model": "qwen2.5-7b-instruct",
-      "enable": false
-    },
-    "text_aided": {
-      "api_key": "your_api_key",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model": "qwen2.5-7b-instruct",
-      "enable": false
-    },
-    "title_aided": {
-      "api_key": "your_api_key",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model": "qwen2.5-32b-instruct",
-      "enable": false
-    }
-  },
-  "config_version": "1.1.1",
-  "weights": {
-    "yolo_v8_ft": "MFD/YOLO/yolo_v8_ft.pt",
-    "unimernet_small": "MFR/unimernet_small.onnx",
-    "doclayout_yolo": "Layout/YOLO/doclayout_yolo.pt"
-  }
-}
-EOL
+
 
 # 设置入口点
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
