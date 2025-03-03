@@ -396,49 +396,41 @@ import os
 import sys
 import time
 import json
-
-# 尝试不同的导入方式
-try:
-    from magic_pdf import Dataset
-except ImportError:
-    try:
-        from magic_pdf.data.dataset import Dataset
-    except ImportError:
-        try:
-            # 查找可能的模块路径
-            import magic_pdf
-            print(f"magic_pdf 模块路径: {{magic_pdf.__file__}}")
-            print(f"magic_pdf 模块内容: {{dir(magic_pdf)}}")
-            
-            # 尝试导入子模块
-            import magic_pdf.data
-            print(f"magic_pdf.data 模块内容: {{dir(magic_pdf.data)}}")
-            
-            # 使用正确的导入路径
-            from magic_pdf.data.dataset import Dataset
-        except Exception as e:
-            print(f"导入 Dataset 失败: {{e}}")
-            sys.exit(1)
-
+from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
+from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+from magic_pdf.config.enums import SupportedPdfParseMethod
 
-# 确保目录存在
-os.makedirs("{output_dir}", exist_ok=True)
-os.makedirs("{output_dir}/images", exist_ok=True)
+# args
+pdf_file_name = "{file_path}"
+name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
 
-# 处理PDF
-start_time = time.time()
+# prepare env
+local_image_dir, local_md_dir = "{output_dir}/images", "{output_dir}"
+image_dir = "images"
 
-# 创建数据集
-ds = Dataset(
-    pdf_path="{file_path}",
-    output_dir="{output_dir}",
-    config_path="/root/magic-pdf.json"
-)
+# read bytes
+reader1 = FileBasedDataReader("")
+pdf_bytes = reader1.read(pdf_file_name)
 
-# 应用文档分析
+# Create image writer and md writer
+image_writer = FileBasedDataWriter(local_image_dir)
+md_writer = FileBasedDataWriter(local_md_dir)
+
+# proc
+## Create Dataset Instance
+ds = PymuDocDataset(pdf_bytes)
+
+## inference
 try:
-    infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
+    if ds.classify() == SupportedPdfParseMethod.OCR or {str(ocr).lower()}:
+        infer_result = ds.apply(doc_analyze, ocr=True)
+        ## pipeline
+        pipe_result = infer_result.pipe_ocr_mode(image_writer)
+    else:
+        infer_result = ds.apply(doc_analyze, ocr=False)
+        ## pipeline
+        pipe_result = infer_result.pipe_txt_mode(image_writer)
 except KeyError as e:
     # 捕获 KeyError 并尝试修复
     print(f"捕获到 KeyError: {{e}}")
@@ -479,14 +471,39 @@ except KeyError as e:
         magic_pdf.model.pdf_extract_kit.CustomPEKModel.__init__ = patched_init
     
     # 重新尝试
-    infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
+    if ds.classify() == SupportedPdfParseMethod.OCR or {str(ocr).lower()}:
+        infer_result = ds.apply(doc_analyze, ocr=True)
+        ## pipeline
+        pipe_result = infer_result.pipe_ocr_mode(image_writer)
+    else:
+        infer_result = ds.apply(doc_analyze, ocr=False)
+        ## pipeline
+        pipe_result = infer_result.pipe_txt_mode(image_writer)
+
+### get markdown content
+md_content = pipe_result.get_markdown(image_dir)
+
+### dump markdown
+pipe_result.dump_md(md_writer, f"{{name_without_suff}}.md", image_dir)
+
+### get content list content
+content_list_content = pipe_result.get_content_list(image_dir)
+
+### dump content list
+pipe_result.dump_content_list(md_writer, f"{{name_without_suff}}_content_list.json", image_dir)
+
+### get middle json
+middle_json_content = pipe_result.get_middle_json()
+
+### dump middle json
+pipe_result.dump_middle_json(md_writer, f'{{name_without_suff}}_middle.json')
 
 # 保存处理时间
 processing_time = time.time() - start_time
 with open("{output_dir}/processing_time.txt", "w") as f:
     f.write(str(processing_time))
 
-# 退出
+print("Processing completed successfully!")
 sys.exit(0)
 """)
         
@@ -816,49 +833,41 @@ import os
 import sys
 import time
 import json
-
-# 尝试不同的导入方式
-try:
-    from magic_pdf import Dataset
-except ImportError:
-    try:
-        from magic_pdf.data.dataset import Dataset
-    except ImportError:
-        try:
-            # 查找可能的模块路径
-            import magic_pdf
-            print(f"magic_pdf 模块路径: {{magic_pdf.__file__}}")
-            print(f"magic_pdf 模块内容: {{dir(magic_pdf)}}")
-            
-            # 尝试导入子模块
-            import magic_pdf.data
-            print(f"magic_pdf.data 模块内容: {{dir(magic_pdf.data)}}")
-            
-            # 使用正确的导入路径
-            from magic_pdf.data.dataset import Dataset
-        except Exception as e:
-            print(f"导入 Dataset 失败: {{e}}")
-            sys.exit(1)
-
+from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
+from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+from magic_pdf.config.enums import SupportedPdfParseMethod
 
-# 确保目录存在
-os.makedirs("{output_dir}", exist_ok=True)
-os.makedirs("{output_dir}/images", exist_ok=True)
+# args
+pdf_file_name = "{file_path}"
+name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
 
-# 处理PDF
-start_time = time.time()
+# prepare env
+local_image_dir, local_md_dir = "{output_dir}/images", "{output_dir}"
+image_dir = "images"
 
-# 创建数据集
-ds = Dataset(
-    pdf_path="{file_path}",
-    output_dir="{output_dir}",
-    config_path="/root/magic-pdf.json"
-)
+# read bytes
+reader1 = FileBasedDataReader("")
+pdf_bytes = reader1.read(pdf_file_name)
 
-# 应用文档分析
+# Create image writer and md writer
+image_writer = FileBasedDataWriter(local_image_dir)
+md_writer = FileBasedDataWriter(local_md_dir)
+
+# proc
+## Create Dataset Instance
+ds = PymuDocDataset(pdf_bytes)
+
+## inference
 try:
-    infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
+    if ds.classify() == SupportedPdfParseMethod.OCR or {str(ocr).lower()}:
+        infer_result = ds.apply(doc_analyze, ocr=True)
+        ## pipeline
+        pipe_result = infer_result.pipe_ocr_mode(image_writer)
+    else:
+        infer_result = ds.apply(doc_analyze, ocr=False)
+        ## pipeline
+        pipe_result = infer_result.pipe_txt_mode(image_writer)
 except KeyError as e:
     # 捕获 KeyError 并尝试修复
     print(f"捕获到 KeyError: {{e}}")
@@ -899,14 +908,39 @@ except KeyError as e:
         magic_pdf.model.pdf_extract_kit.CustomPEKModel.__init__ = patched_init
     
     # 重新尝试
-    infer_result = ds.apply(doc_analyze, ocr={str(ocr).lower()})
+    if ds.classify() == SupportedPdfParseMethod.OCR or {str(ocr).lower()}:
+        infer_result = ds.apply(doc_analyze, ocr=True)
+        ## pipeline
+        pipe_result = infer_result.pipe_ocr_mode(image_writer)
+    else:
+        infer_result = ds.apply(doc_analyze, ocr=False)
+        ## pipeline
+        pipe_result = infer_result.pipe_txt_mode(image_writer)
+
+### get markdown content
+md_content = pipe_result.get_markdown(image_dir)
+
+### dump markdown
+pipe_result.dump_md(md_writer, f"{{name_without_suff}}.md", image_dir)
+
+### get content list content
+content_list_content = pipe_result.get_content_list(image_dir)
+
+### dump content list
+pipe_result.dump_content_list(md_writer, f"{{name_without_suff}}_content_list.json", image_dir)
+
+### get middle json
+middle_json_content = pipe_result.get_middle_json()
+
+### dump middle json
+pipe_result.dump_middle_json(md_writer, f'{{name_without_suff}}_middle.json')
 
 # 保存处理时间
 processing_time = time.time() - start_time
 with open("{output_dir}/processing_time.txt", "w") as f:
     f.write(str(processing_time))
 
-# 退出
+print("Processing completed successfully!")
 sys.exit(0)
 """)
         
