@@ -11,6 +11,7 @@ RUN apt-get update && \
         python3-pip \
         python3-venv \
         wget \
+        curl \
         libreoffice \
         git \
         ccache \
@@ -39,6 +40,14 @@ WORKDIR /app
 # Create necessary directories
 RUN mkdir -p /models/MFD/YOLO /models/layoutlmv3-base-chinese /models/layoutreader /models/rapid_table /models/unimernet_small /models/yolo_v8_mfd
 RUN mkdir -p /output /uploads /data
+
+# 下载模型文件
+RUN wget -q --show-progress https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O /app/download_models_hf.py && \
+    /bin/bash -c "source /opt/mineru_venv/bin/activate && python3 /app/download_models_hf.py"
+
+# 直接下载 yolo_v8_ft.pt 模型
+RUN wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -O /models/MFD/YOLO/yolo_v8_ft.pt || \
+    curl -L https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -o /models/MFD/YOLO/yolo_v8_ft.pt
 
 # Create configuration file
 RUN echo '{\
