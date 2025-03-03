@@ -16,6 +16,7 @@ RUN apt-get update && \
         python3.10-distutils \
         python3-pip \
         wget \
+        curl \
         git \
         libgl1 \
         libglib2.0-0 \
@@ -41,11 +42,52 @@ RUN /bin/bash -c "wget https://github.com/opendatalab/MinerU/raw/master/magic-pd
     source /opt/mineru_venv/bin/activate && \
     pip3 install -U magic-pdf"
 
-# Download models and update the configuration file
-RUN /bin/bash -c "pip3 install huggingface_hub && \
-    wget https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py -O download_models.py && \
-    python3 download_models.py && \
-    sed -i 's|cpu|cuda|g' /root/magic-pdf.json"
+# 创建必要的目录
+RUN mkdir -p /models/MFD/YOLO \
+    /models/layoutlmv3-base-chinese \
+    /models/layoutreader \
+    /models/rapid_table \
+    /models/unimernet_small \
+    /models/yolo_v8_mfd
 
-# Set the entry point to activate the virtual environment and run the command line tool
-ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"] 
+# 创建配置文件
+RUN echo '{\
+    "bucket_info":{},\
+    "models-dir":"/models",\
+    "layoutreader-model-dir":"/models/layoutreader",\
+    "device-mode":"cuda",\
+    "layout-config": {\
+        "model": "layoutlmv3",\
+        "model_path": "/models/layoutlmv3-base-chinese",\
+        "enable": false\
+    },\
+    "formula-config": {\
+        "mfd_model": "yolo_v8_mfd",\
+        "mfr_model": "unimernet_small",\
+        "enable": false\
+    },\
+    "table-config": {\
+        "model": "rapid_table",\
+        "enable": false,\
+        "max_time": 400\
+    },\
+    "config_version": "1.0.0"\
+}' > /app/magic-pdf.json
+
+# 复制配置文件到多个位置
+RUN mkdir -p /app && \
+    cp /root/magic-pdf.json /app/magic-pdf.json && \
+    mkdir -p /home/root && \
+    cp /root/magic-pdf.json /home/root/magic-pdf.json
+
+# 设置环境变量
+ENV MINERU_TOOLS_CONFIG_JSON=/app/magic-pdf.json
+
+# 创建工作目录
+WORKDIR /app
+
+# 设置入口点
+ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]
+
+# 默认命令
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"] 

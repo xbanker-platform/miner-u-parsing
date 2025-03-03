@@ -1,19 +1,14 @@
-version: '3.8'
-
 services:
-  mineru:
+  mineru-service-official:
     build:
       context: .
       dockerfile: Dockerfile.official
     container_name: mineru-service-official
-    restart: unless-stopped
+    restart: always
+    volumes:
+      - ./models:/models
     ports:
       - "8000:8000"
-    volumes:
-      - ./app:/app
-      - ./output:/output
-      - ./uploads:/uploads
-      - ./data:/data
     deploy:
       resources:
         reservations:
@@ -21,17 +16,14 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    environment:
-      - MINERU_TOOLS_CONFIG_JSON=/root/magic-pdf.json
-      - CUDA_VISIBLE_DEVICES=0
-      - PYTHONUNBUFFERED=1
-    command: uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir /app
 
   nginx:
     image: nginx:latest
+    container_name: nginx-official
+    restart: always
     ports:
       - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
-      - mineru 
+      - mineru-service-official 
