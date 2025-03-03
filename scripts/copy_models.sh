@@ -21,3 +21,6 @@ chmod -R 755 /app/models
 # 列出复制后的文件
 echo "Copied model files:"
 ls -R /app/models 
+
+# 创建符号链接，确保yolo_v8_ft.pt可用
+ln -sf /app/models/MFD/YOLO/yolo_v8_mfd.pt /app/models/MFD/YOLO/yolo_v8_ft.pt 
