@@ -14,6 +14,7 @@ services:
       - ./models:/models
       - ./output:/output
       - ./uploads:/uploads
+      - ./data:/data
     deploy:
       resources:
         reservations:
@@ -23,9 +24,6 @@ services:
               capabilities: [gpu]
     environment:
       - MINERU_TOOLS_CONFIG_JSON=/app/magic-pdf.json
-    volumes:
-      - ./data:/data
-    environment:
       - CUDA_VISIBLE_DEVICES=0
       - PYTHONUNBUFFERED=1  # 确保Python输出不被缓存
       - UVICORN_TIMEOUT=300  # 5分钟超时
