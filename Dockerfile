@@ -25,12 +25,12 @@ RUN echo "huggingface_hub" >> /requirements.txt
 RUN echo "fastapi" >> /requirements.txt
 RUN echo "uvicorn" >> /requirements.txt
 RUN echo "python-multipart" >> /requirements.txt
+RUN echo "paddlepaddle-gpu==2.5.2" >> /requirements.txt
 
 # Activate the virtual environment and install necessary Python packages
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install --upgrade pip && \
-    pip3 install --no-cache-dir -r /requirements.txt --extra-index-url https://wheels.myhloli.com && \
-    pip3 install --no-cache-dir paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
+    pip3 install --no-cache-dir -r /requirements.txt --extra-index-url https://wheels.myhloli.com"
 
 # Create a working directory
 WORKDIR /app
