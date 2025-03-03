@@ -11,7 +11,7 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/app
-      - ./models:/models
+      - ./models:/models:ro
       - ./output:/output
       - ./uploads:/uploads
       - ./data:/data

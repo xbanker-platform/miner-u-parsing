@@ -74,23 +74,44 @@ for CONFIG_PATH in "${CONFIG_PATHS[@]}"; do
     fi
 done
 
-# 检查模型文件是否存在，如果不存在则下载
+# 检查模型文件是否存在
+echo "检查模型文件..."
+
+# 检查 yolo_v8_ft.pt 文件
 if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
-    echo "模型文件不存在，开始下载..."
+    echo "警告: /models/MFD/YOLO/yolo_v8_ft.pt 文件不存在"
     
-    # 创建必要的目录
-    mkdir -p /models/MFD/YOLO
-    
-    # 下载模型文件
-    echo "下载 yolo_v8_ft.pt 模型..."
-    wget -q --show-progress https://huggingface.co/opendatalab/yolo_v8_mfd/resolve/main/yolo_v8_ft.pt -O /models/MFD/YOLO/yolo_v8_ft.pt
-    
-    echo "模型下载完成！"
+    # 检查是否存在 yolo_v8_mfd.pt 文件
+    if [ -f "/models/MFD/YOLO/yolo_v8_mfd.pt" ]; then
+        echo "找到 /models/MFD/YOLO/yolo_v8_mfd.pt 文件，创建符号链接..."
+        # 创建符号链接
+        ln -sf /models/MFD/YOLO/yolo_v8_mfd.pt /models/MFD/YOLO/yolo_v8_ft.pt 2>/dev/null || true
+        
+        if [ ! -f "/models/MFD/YOLO/yolo_v8_ft.pt" ]; then
+            echo "无法创建符号链接，尝试在容器内部创建副本..."
+            # 如果无法创建符号链接（可能是因为只读挂载），则尝试在容器内部创建副本
+            mkdir -p /tmp/models/MFD/YOLO
+            cp /models/MFD/YOLO/yolo_v8_mfd.pt /tmp/models/MFD/YOLO/yolo_v8_ft.pt
+            
+            # 修改配置文件中的模型目录路径
+            sed -i 's|"models-dir":"/models"|"models-dir":"/tmp/models"|g' "$MINERU_TOOLS_CONFIG_JSON"
+            echo "已将模型目录路径修改为 /tmp/models"
+        fi
+    else
+        echo "错误: 找不到任何可用的模型文件！"
+        exit 1
+    fi
 fi
 
 # 显示模型目录结构
 echo "模型目录结构："
 find /models -type f | sort
+
+# 如果使用了临时目录，也显示临时目录结构
+if [ -d "/tmp/models" ]; then
+    echo "临时模型目录结构："
+    find /tmp/models -type f | sort
+fi
 
 # 启动应用
 echo "启动应用..."
