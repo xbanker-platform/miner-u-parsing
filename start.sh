@@ -8,11 +8,7 @@ docker rmi $(docker images -q mineru:latest) 2>/dev/null || true
 
 # 创建必要的目录
 echo "创建必要的目录..."
-mkdir -p app models output uploads scripts
-
-# 下载模型下载脚本
-echo "下载模型下载脚本..."
-wget -O scripts/download_models_hf.py https://github.com/opendatalab/MinerU/raw/master/scripts/download_models_hf.py
+mkdir -p app models output uploads scripts data
 
 # 启动 Docker 容器
 echo "启动 Docker 容器..."
