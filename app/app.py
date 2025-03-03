@@ -1,39 +1,96 @@
 import os
-
-# 设置环境变量，指定配置文件路径
-os.environ["MINERU_TOOLS_CONFIG_JSON"] = "/app/magic-pdf.json"
-
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
+import sys
+import logging
+import shutil
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-import tempfile
-import os
-import subprocess
-import shutil
-import uuid
-import logging
-from typing import Dict, Optional, List
-import json
-from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
-import asyncio
+from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+import uuid
+import json
+import time
+import asyncio
 import traceback
+from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+import subprocess
+from pathlib import Path
+
+# 配置文件路径处理
+config_paths = [
+    "/app/magic-pdf.json",
+    "/root/magic-pdf.json",
+    os.path.expanduser("~/magic-pdf.json")
+]
+
+# 检查配置文件是否存在，如果不存在则创建
+config_found = False
+for config_path in config_paths:
+    if os.path.exists(config_path):
+        config_found = True
+        os.environ["MINERU_TOOLS_CONFIG_JSON"] = config_path
+        print(f"找到配置文件: {config_path}")
+        break
+
+if not config_found:
+    # 创建默认配置文件
+    default_config = {
+        "bucket_info": {},
+        "models-dir": "/models",
+        "layoutreader-model-dir": "/models/layoutreader",
+        "device-mode": "cuda",
+        "layout-config": {
+            "model": "layoutlmv3"
+        },
+        "formula-config": {
+            "mfd_model": "yolo_v8_mfd",
+            "mfr_model": "unimernet_small",
+            "enable": True
+        },
+        "table-config": {
+            "model": "rapid_table",
+            "enable": True,
+            "max_time": 400
+        },
+        "config_version": "1.0.0"
+    }
+    
+    # 尝试在多个位置创建配置文件
+    for config_path in config_paths:
+        try:
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w') as f:
+                json.dump(default_config, f, indent=4)
+            os.environ["MINERU_TOOLS_CONFIG_JSON"] = config_path
+            print(f"创建配置文件: {config_path}")
+            config_found = True
+            break
+        except Exception as e:
+            print(f"无法在 {config_path} 创建配置文件: {str(e)}")
+    
+    if not config_found:
+        print("警告: 无法创建配置文件!")
+
+# 确保环境变量已设置
+print(f"MINERU_TOOLS_CONFIG_JSON = {os.environ.get('MINERU_TOOLS_CONFIG_JSON', '未设置')}")
 
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("mineru_api.log")
-    ]
+    handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger("mineru-api")
 
-# 创建数据目录
-os.makedirs("/data/results", exist_ok=True)
-os.makedirs("/data/uploads", exist_ok=True)
+# 创建必要的目录
+DATA_DIR = "/data"
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+RESULT_DIR = os.path.join(DATA_DIR, "results")
+
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(RESULT_DIR, exist_ok=True)
 
 app = FastAPI(title="MinerU API", description="API for processing PDF documents with MinerU")
 
