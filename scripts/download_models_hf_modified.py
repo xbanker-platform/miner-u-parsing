@@ -89,8 +89,12 @@ config = {
     "config_version": "1.0.0"
 }
 
-# 保存配置文件
+# 保存配置文件到多个位置
 with open("/app/magic-pdf.json", "w") as f:
+    json.dump(config, f, indent=4)
+
+# 同时保存到用户目录
+with open("/root/magic-pdf.json", "w") as f:
     json.dump(config, f, indent=4)
 
 print("配置文件已创建") 

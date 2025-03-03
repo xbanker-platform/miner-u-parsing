@@ -25,8 +25,8 @@ services:
     environment:
       - MINERU_TOOLS_CONFIG_JSON=/app/magic-pdf.json
       - CUDA_VISIBLE_DEVICES=0
-      - PYTHONUNBUFFERED=1  # 确保Python输出不被缓存
-      - UVICORN_TIMEOUT=300  # 5分钟超时
+      - PYTHONUNBUFFERED=1
+      - UVICORN_TIMEOUT=300
     working_dir: /app
     command: bash -c 'source /opt/mineru_venv/bin/activate && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --log-level debug'
     ulimits:
