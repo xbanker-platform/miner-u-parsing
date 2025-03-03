@@ -4,7 +4,8 @@
     "layoutreader-model-dir":"/models/layoutreader",
     "device-mode":"cuda",
     "layout-config": {
-        "model": "layoutlmv3"
+        "model": "layoutlmv3",
+        "model_path": "/models/layoutlmv3-base-chinese"
     },
     "formula-config": {
         "mfd_model": "yolo_v8_mfd",
@@ -13,7 +14,7 @@
     },
     "table-config": {
         "model": "rapid_table",
-        "enable": true,
+        "enable": false,
         "max_time": 400
     },
     "config_version": "1.0.0"
