@@ -16,6 +16,6 @@ wget -O scripts/download_models_hf.py https://github.com/opendatalab/MinerU/raw/
 
 # 启动 Docker 容器
 echo "启动 Docker 容器..."
-docker-compose up -d --build
+docker compose up -d --build
 
 echo "MinerU 服务已启动，API 可通过 http://localhost:8000 访问" 
