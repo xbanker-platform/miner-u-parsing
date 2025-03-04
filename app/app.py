@@ -2,7 +2,7 @@ import os
 import sys
 import logging
 import shutil
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+import tempfile
+import io
 
 # 配置文件路径处理
 config_paths = [
@@ -580,225 +582,95 @@ async def cleanup_old_tasks():
 @app.post("/process_pdf_and_return/")
 async def process_pdf_and_return(
     file: UploadFile = File(...),
-    ocr: bool = True
+    ocr: Optional[bool] = Form(False)
 ):
-    task_id = None
+    """兼容旧API的端点"""
+    return await process_pdf(file, ocr)
+
+@app.post("/process")
+async def process_pdf(
+    file: UploadFile = File(...),
+    ocr: Optional[bool] = Form(False)
+):
     try:
-        # 1. 上传文件
-        task_id = str(uuid.uuid4())
-        task_dir = f"/data/uploads/{task_id}"
-        output_dir = f"/data/results/{task_id}"
-        os.makedirs(task_dir, exist_ok=True)
-        os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(f"{output_dir}/images", exist_ok=True)
-        
-        # 保存文件
-        file_path = os.path.join(task_dir, file.filename)
-        with open(file_path, "wb") as buffer:
-            chunk_size = 4 * 1024 * 1024
-            while True:
-                chunk = await file.read(chunk_size)
-                if not chunk:
-                    break
-                buffer.write(chunk)
-        
-        logger.info(f"File uploaded: {file.filename}, task_id: {task_id}")
-        
-        # 2. 处理PDF (同步处理，不使用后台任务)
-        logger.info(f"Processing PDF: {file_path} with OCR={ocr}")
-        
-        # 获取文件名（不含扩展名）
-        base_name = os.path.splitext(file.filename)[0]
-        logger.info(f"Base filename: {base_name}")
-        
-        # 创建Python脚本
-        script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
-        with open(script_path, "w") as f:
-            f.write("""
-import os
-from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
-from magic_pdf.data.dataset import PymuDocDataset
-from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
-from magic_pdf.config.enums import SupportedPdfParseMethod
-
-# args
-pdf_file_name = "{}"  # 文件路径
-name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
-
-# prepare env
-local_image_dir, local_md_dir = "{}/images", "{}"
-image_dir = "images"
-
-os.makedirs(local_image_dir, exist_ok=True)
-os.makedirs(local_md_dir, exist_ok=True)
-
-# 创建writer
-image_writer = FileBasedDataWriter(local_image_dir)
-md_writer = FileBasedDataWriter(local_md_dir)
-
-# read bytes
-reader = FileBasedDataReader("")
-pdf_bytes = reader.read(pdf_file_name)  # read the pdf content
-
-# proc
-## Create Dataset Instance
-ds = PymuDocDataset(pdf_bytes)
-
-## inference
-use_ocr = {}
-if ds.classify() == SupportedPdfParseMethod.OCR or use_ocr:
-    infer_result = ds.apply(doc_analyze, ocr=True)
-    pipe_result = infer_result.pipe_ocr_mode(image_writer)
-else:
-    infer_result = ds.apply(doc_analyze, ocr=False)
-    pipe_result = infer_result.pipe_txt_mode(image_writer)
-
-# 绘制模型结果
-infer_result.draw_model(os.path.join(local_md_dir, f"{{name_without_suff}}_model.pdf"))
-
-# 获取模型推理结果
-model_inference_result = infer_result.get_infer_res()
-
-# 绘制布局结果
-pipe_result.draw_layout(os.path.join(local_md_dir, f"{{name_without_suff}}_layout.pdf"))
-
-# 绘制spans结果
-pipe_result.draw_span(os.path.join(local_md_dir, f"{{name_without_suff}}_spans.pdf"))
-
-# 获取markdown内容
-md_content = pipe_result.get_markdown(image_dir)
-
-# 保存markdown
-pipe_result.dump_md(md_writer, f"{{name_without_suff}}.md", image_dir)
-
-# 获取内容列表
-content_list_content = pipe_result.get_content_list(image_dir)
-
-# 保存内容列表
-pipe_result.dump_content_list(md_writer, f"{{name_without_suff}}_content_list.json", image_dir)
-
-# 获取中间json
-middle_json_content = pipe_result.get_middle_json()
-
-# 保存中间json
-pipe_result.dump_middle_json(md_writer, f'{{name_without_suff}}_middle.json')
-""".format(file_path, output_dir, output_dir, "True" if ocr else "False"))
-        
-        # 执行脚本
+        # 记录开始时间
         start_time = datetime.now()
-        result = subprocess.run(
-            ["python", script_path],
-            capture_output=True,
-            text=True,
-            timeout=PROCESS_TIMEOUT
-        )
         
-        if result.returncode != 0:
-            logger.error(f"Error processing PDF: {result.stderr}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error processing PDF: {result.stderr}"
-            )
+        # 读取上传的PDF文件内容
+        pdf_bytes = await file.read()
         
-        processing_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"PDF processed in {processing_time} seconds")
+        # 创建临时目录
+        temp_dir = tempfile.mkdtemp()
+        output_dir = os.path.join(temp_dir, "output")
+        images_dir = os.path.join(output_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
         
-        # 3. 读取结果
-        # 列出目录中的所有文件，以便调试
-        all_files = os.listdir(output_dir)
-        logger.info(f"Files in output directory: {all_files}")
+        # 准备文件名
+        file_name = file.filename or "uploaded.pdf"
+        name_without_suffix = os.path.splitext(file_name)[0]
         
-        # 读取Markdown
-        markdown_path = os.path.join(output_dir, f"{base_name}.md")
-        if not os.path.exists(markdown_path):
-            # 尝试查找任何.md文件
-            md_files = [f for f in all_files if f.endswith('.md') and not f.endswith('_model.md') and not f.endswith('_layout.md') and not f.endswith('_spans.md')]
-            if md_files:
-                markdown_path = os.path.join(output_dir, md_files[0])
-                logger.info(f"Using alternative markdown file: {md_files[0]}")
+        logger.info(f"处理PDF文件: {file_name}")
+        
+        # 准备数据写入器
+        image_writer = FileBasedDataWriter(images_dir)
+        md_writer = FileBasedDataWriter(output_dir)
+        
+        # 创建数据集实例
+        ds = PymuDocDataset(pdf_bytes)
+        
+        # 推理
+        try:
+            if ocr or ds.classify() == SupportedPdfParseMethod.OCR:
+                logger.info("使用OCR模式处理PDF")
+                infer_result = ds.apply(doc_analyze, ocr=True)
+                pipe_result = infer_result.pipe_ocr_mode(image_writer)
             else:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Markdown file not generated"
-                )
-        
-        with open(markdown_path, 'r', encoding='utf-8') as f:
-            markdown_content = f.read()
-        
-        # 读取内容列表
-        content_list_path = os.path.join(output_dir, f"{base_name}_content_list.json")
-        if not os.path.exists(content_list_path):
-            # 尝试查找任何_content_list.json文件
-            content_list_files = [f for f in all_files if f.endswith('_content_list.json')]
-            if content_list_files:
-                content_list_path = os.path.join(output_dir, content_list_files[0])
-                logger.info(f"Using alternative content list file: {content_list_files[0]}")
-        
-        if os.path.exists(content_list_path):
-            with open(content_list_path, 'r', encoding='utf-8') as f:
-                content_list = f.read()
-        else:
-            content_list = "{}"
-            logger.warning(f"Content list file not found: {content_list_path}")
-        
-        # 读取中间JSON
-        middle_json_path = os.path.join(output_dir, f"{base_name}_middle.json")
-        if not os.path.exists(middle_json_path):
-            # 尝试查找任何_middle.json文件
-            middle_json_files = [f for f in all_files if f.endswith('_middle.json')]
-            if middle_json_files:
-                middle_json_path = os.path.join(output_dir, middle_json_files[0])
-                logger.info(f"Using alternative middle json file: {middle_json_files[0]}")
-        
-        if os.path.exists(middle_json_path):
-            with open(middle_json_path, 'r', encoding='utf-8') as f:
-                middle_json = f.read()
-        else:
-            middle_json = "{}"
-            logger.warning(f"Middle JSON file not found: {middle_json_path}")
-        
-        # 4. 返回结果
-        response = {
-            "status": "completed",
-            "processing_time": processing_time,
-            "markdown": markdown_content,
-            "content_list": content_list,
-            "middle_json": middle_json
-        }
-        
-        return JSONResponse(content=response)
-        
-    except subprocess.TimeoutExpired:
-        logger.error(f"PDF processing timeout after {PROCESS_TIMEOUT} seconds")
-        raise HTTPException(
-            status_code=500,
-            detail=f"PDF processing timeout after {PROCESS_TIMEOUT} seconds"
-        )
-    except Exception as e:
-        logger.error(f"Error processing PDF: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing PDF: {str(e)}"
-        )
-    finally:
-        # 5. 清理临时文件
-        if task_id:
+                logger.info("使用文本模式处理PDF")
+                infer_result = ds.apply(doc_analyze, ocr=False)
+                pipe_result = infer_result.pipe_txt_mode(image_writer)
+            
+            # 获取markdown内容
+            markdown_content = pipe_result.get_markdown("images")
+            
+            # 保存Markdown
+            pipe_result.dump_md(md_writer, f"{name_without_suffix}.md", "images")
+            
+            # 获取内容列表
+            content_list_content = pipe_result.get_content_list("images")
+            
+            # 保存内容列表
+            pipe_result.dump_content_list(md_writer, f"{name_without_suffix}_content_list.json", "images")
+            
+            # 获取中间JSON
+            middle_json_content = pipe_result.get_middle_json()
+            
+            # 保存中间JSON
+            pipe_result.dump_middle_json(md_writer, f"{name_without_suffix}_middle.json")
+            
+            # 计算处理时间
+            processing_time = (datetime.now() - start_time).total_seconds()
+            
+            # 构建响应
+            response = {
+                "status": "completed",
+                "processing_time": processing_time,
+                "markdown": markdown_content,
+                "content_list": content_list_content,
+                "middle_json": middle_json_content
+            }
+            
+            return JSONResponse(content=response)
+            
+        except Exception as e:
+            logger.error(f"处理PDF时出错: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"PDF处理失败: {str(e)}")
+        finally:
+            # 清理临时文件
             try:
-                # 删除上传目录
-                upload_dir = f"/data/uploads/{task_id}"
-                if os.path.exists(upload_dir):
-                    shutil.rmtree(upload_dir, ignore_errors=True)
-                
-                # 删除处理脚本
-                script_path = os.path.join("/data/uploads", f"{task_id}_process.py")
-                if os.path.exists(script_path):
-                    os.remove(script_path)
-                
-                # 删除结果目录
-                result_dir = f"/data/results/{task_id}"
-                if os.path.exists(result_dir):
-                    shutil.rmtree(result_dir, ignore_errors=True)
-                
-                logger.info(f"Temporary files cleaned up for task {task_id}")
+                shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception as e:
-                logger.error(f"Error cleaning up temporary files: {str(e)}")
+                logger.warning(f"清理临时文件失败: {str(e)}")
+    
+    except Exception as e:
+        logger.exception("处理PDF时发生错误")
+        raise HTTPException(status_code=500, detail=str(e))
