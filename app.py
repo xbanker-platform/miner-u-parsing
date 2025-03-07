@@ -7,6 +7,9 @@ import logging
 import shutil
 from typing import Optional
 import io
+import subprocess
+import asyncio
+from asyncio import Queue
 
 # 导入magic-pdf相关模块
 from magic_pdf.data.data_reader_writer import FileBasedDataWriter
@@ -18,6 +21,51 @@ app = FastAPI(title="MinerU API", description="PDF解析服务API")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class GPUTaskQueue:
+    def __init__(self, max_concurrent=4):
+        self.queue = Queue()
+        self.processing = set()
+        self.max_concurrent = max_concurrent
+        
+    async def add_task(self, task_id, task_func):
+        await self.queue.put((task_id, task_func))
+        
+    async def process_queue(self):
+        while True:
+            if len(self.processing) < self.max_concurrent:
+                if not self.queue.empty():
+                    task_id, task_func = await self.queue.get()
+                    self.processing.add(task_id)
+                    try:
+                        await task_func()
+                    finally:
+                        self.processing.remove(task_id)
+            await asyncio.sleep(1)
+
+class ResourceMonitor:
+    def __init__(self):
+        self.gpu_threshold = 0.9  # 90% GPU使用率阈值
+        
+    async def monitor(self):
+        while True:
+            gpu_usage = get_gpu_memory_usage()
+            if gpu_usage > self.gpu_threshold:
+                # 减少并发任务数
+                gpu_task_queue.max_concurrent = max(1, gpu_task_queue.max_concurrent - 1)
+            else:
+                # 增加并发任务数
+                gpu_task_queue.max_concurrent = min(4, gpu_task_queue.max_concurrent + 1)
+            await asyncio.sleep(5)
+
+class PriorityTaskQueue:
+    def __init__(self):
+        self.high_priority = Queue()
+        self.normal_priority = Queue()
+        
+    async def add_task(self, task_id, task_func, priority='normal'):
+        queue = self.high_priority if priority == 'high' else self.normal_priority
+        await queue.put((task_id, task_func))
 
 @app.get("/")
 async def root():
@@ -115,4 +163,23 @@ async def process_pdf_and_return(
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"} 
+    return {"status": "healthy"}
+
+def get_gpu_memory_usage():
+    try:
+        result = subprocess.run(['nvidia-smi', '--query-gpu=memory.used', '--format=csv,nounits,noheader'], 
+                              capture_output=True, text=True)
+        return int(result.stdout.strip())
+    except:
+        return 0 
+
+async def process_with_retry(task_id, max_retries=3):
+    retries = 0
+    while retries < max_retries:
+        try:
+            return await process_pdf_task(task_id)
+        except Exception as e:
+            retries += 1
+            if retries == max_retries:
+                raise
+            await asyncio.sleep(1) 
