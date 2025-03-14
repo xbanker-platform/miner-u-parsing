@@ -34,24 +34,46 @@ task_status: Dict[str, Dict] = {}
 
 class GPUTaskQueue:
     def __init__(self, max_concurrent=4):
-        self.queue = Queue()
-        self.processing = set()
         self.max_concurrent = max_concurrent
-        
+        self.processing = {}  # 正在处理的任务，格式：{task_id: task_func}
+    
     async def add_task(self, task_id, task_func):
-        await self.queue.put((task_id, task_func))
+        """
+        添加任务到GPU队列
         
-    async def process_queue(self):
-        while True:
-            if len(self.processing) < self.max_concurrent:
-                if not self.queue.empty():
-                    task_id, task_func = await self.queue.get()
-                    self.processing.add(task_id)
-                    try:
-                        await task_func()
-                    finally:
-                        self.processing.remove(task_id)
-            await asyncio.sleep(1)
+        Args:
+            task_id: 任务ID
+            task_func: 任务函数
+        """
+        if len(self.processing) >= self.max_concurrent:
+            logger.warning(f"GPU队列已满，无法添加任务，任务ID: {task_id}")
+            return False
+        
+        # 添加任务到处理队列
+        self.processing[task_id] = task_func
+        
+        # 创建任务处理协程
+        asyncio.create_task(self._process_task(task_id, task_func))
+        
+        return True
+    
+    async def _process_task(self, task_id, task_func):
+        """
+        处理任务
+        
+        Args:
+            task_id: 任务ID
+            task_func: 任务函数
+        """
+        try:
+            # 执行任务
+            await task_func()
+        except Exception as e:
+            logger.error(f"处理任务时出错，任务ID: {task_id}, 错误: {str(e)}")
+        finally:
+            # 从处理队列中移除任务
+            if task_id in self.processing:
+                del self.processing[task_id]
 
 class ResourceMonitor:
     def __init__(self):
@@ -76,6 +98,10 @@ class PriorityTaskQueue:
     async def add_task(self, task_id, task_func, priority='normal'):
         queue = self.high_priority if priority == 'high' else self.normal_priority
         await queue.put((task_id, task_func))
+    
+    def get_queue_length(self, priority='normal'):
+        queue = self.high_priority if priority == 'high' else self.normal_priority
+        return queue.qsize()
 
 @app.get("/")
 async def root():
@@ -253,18 +279,16 @@ async def process_pdf_and_return(
 
 @app.post("/order")
 async def order_pdf_processing(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     ocr: Optional[bool] = Form(False),
     priority: Optional[str] = Form("normal"),
     callback_url: Optional[str] = Form(None)
 ):
     """
-    接收PDF处理请求，立即返回任务ID，然后在后台处理PDF
+    接收PDF处理请求，立即返回任务ID，然后将任务放入队列中等待处理
     处理完成后，将结果上传到S3，并调用API Gateway通知处理结果
     
     Args:
-        background_tasks: FastAPI后台任务
         file: 上传的PDF文件
         ocr: 是否使用OCR
         priority: 任务优先级
@@ -284,24 +308,45 @@ async def order_pdf_processing(
         "priority": priority,
         "file_name": file_name,
         "created_at": time.time(),
-        "callback_url": callback_url
+        "callback_url": callback_url,
+        "queue_position": priority_queue.get_queue_length(priority)
     }
     
-    # 添加后台任务
-    background_tasks.add_task(
-        process_pdf_in_background,
-        task_id,
-        pdf_bytes,
-        file_name,
-        ocr,
-        priority
-    )
+    # 创建处理任务函数
+    async def process_task():
+        await process_pdf_in_background(task_id, pdf_bytes, file_name, ocr, priority)
+    
+    # 将任务添加到优先级队列
+    await priority_queue.add_task(task_id, process_task, priority)
+    
+    # 获取队列中的任务数量
+    queue_info = {
+        "high_priority": priority_queue.high_priority.qsize(),
+        "normal_priority": priority_queue.normal_priority.qsize(),
+        "processing": len(gpu_task_queue.processing),
+        "max_concurrent": gpu_task_queue.max_concurrent
+    }
+    
+    logger.info(f"任务已添加到队列，任务ID: {task_id}, 队列信息: {queue_info}")
     
     return {
         "task_id": task_id,
         "status": "queued",
-        "message": "PDF处理请求已接收，正在后台处理"
+        "message": "PDF处理请求已接收，正在排队处理",
+        "queue_info": queue_info
     }
+
+@app.post("/order/")
+async def order_pdf_processing_with_slash(
+    file: UploadFile = File(...),
+    ocr: Optional[bool] = Form(False),
+    priority: Optional[str] = Form("normal"),
+    callback_url: Optional[str] = Form(None)
+):
+    """
+    与/order端点功能相同，但支持带斜杠的URL
+    """
+    return await order_pdf_processing(file, ocr, priority, callback_url)
 
 async def process_pdf_in_background(task_id: str, pdf_bytes: bytes, file_name: str, ocr: bool, priority: str):
     """
@@ -314,10 +359,6 @@ async def process_pdf_in_background(task_id: str, pdf_bytes: bytes, file_name: s
         ocr: 是否使用OCR
         priority: 任务优先级
     """
-    # 更新任务状态
-    task_status[task_id]["status"] = "processing"
-    task_status[task_id]["started_at"] = time.time()
-    
     # 获取S3客户端
     s3_client = get_oss_instance()
     
@@ -378,26 +419,43 @@ async def process_pdf_in_background(task_id: str, pdf_bytes: bytes, file_name: s
         s3_file_prefix = f"{task_id}/{name_without_suffix}"
         s3_files = []
         
+        # 测试S3连接
+        logger.info(f"测试S3连接，桶名: {Config.s3_bucket_name}, 区域: {Config.s3_region}")
+        test_key = f"{task_id}/test_connection.txt"
+        test_content = "测试S3连接"
+        upload_success = s3_client.upload_object(test_content, Config.s3_bucket_name, test_key)
+        if not upload_success:
+            raise Exception(f"无法连接到S3桶 {Config.s3_bucket_name}，请检查AWS凭证和S3桶配置")
+        s3_files.append(test_key)
+        
         # 上传Markdown文件
         s3_md_key = f"{s3_file_prefix}.md"
-        s3_client.upload_file(md_file_path, Config.s3_bucket_name, s3_md_key)
+        logger.info(f"上传Markdown文件: {md_file_path} -> {s3_md_key}")
+        if not s3_client.upload_file(md_file_path, Config.s3_bucket_name, s3_md_key):
+            raise Exception(f"上传Markdown文件失败: {md_file_path} -> {Config.s3_bucket_name}/{s3_md_key}")
         s3_files.append(s3_md_key)
         
         # 上传内容列表文件
         s3_content_list_key = f"{s3_file_prefix}_content_list.json"
-        s3_client.upload_file(content_list_file_path, Config.s3_bucket_name, s3_content_list_key)
+        logger.info(f"上传内容列表文件: {content_list_file_path} -> {s3_content_list_key}")
+        if not s3_client.upload_file(content_list_file_path, Config.s3_bucket_name, s3_content_list_key):
+            raise Exception(f"上传内容列表文件失败: {content_list_file_path} -> {Config.s3_bucket_name}/{s3_content_list_key}")
         s3_files.append(s3_content_list_key)
         
         # 上传中间JSON文件
         s3_middle_json_key = f"{s3_file_prefix}_middle.json"
-        s3_client.upload_file(middle_json_file_path, Config.s3_bucket_name, s3_middle_json_key)
+        logger.info(f"上传中间JSON文件: {middle_json_file_path} -> {s3_middle_json_key}")
+        if not s3_client.upload_file(middle_json_file_path, Config.s3_bucket_name, s3_middle_json_key):
+            raise Exception(f"上传中间JSON文件失败: {middle_json_file_path} -> {Config.s3_bucket_name}/{s3_middle_json_key}")
         s3_files.append(s3_middle_json_key)
         
         # 上传图片文件
         for img_file in os.listdir(images_dir):
             img_path = os.path.join(images_dir, img_file)
             s3_img_key = f"{s3_file_prefix}/images/{img_file}"
-            s3_client.upload_file(img_path, Config.s3_bucket_name, s3_img_key)
+            logger.info(f"上传图片文件: {img_path} -> {s3_img_key}")
+            if not s3_client.upload_file(img_path, Config.s3_bucket_name, s3_img_key):
+                raise Exception(f"上传图片文件失败: {img_path} -> {Config.s3_bucket_name}/{s3_img_key}")
             s3_files.append(s3_img_key)
         
         # 更新任务状态
@@ -407,12 +465,19 @@ async def process_pdf_in_background(task_id: str, pdf_bytes: bytes, file_name: s
         task_status[task_id]["s3_bucket"] = Config.s3_bucket_name
         
         # 调用API Gateway通知处理结果
-        api_client.notify_processing_result(
+        logger.info(f"调用API Gateway通知处理结果: {Config.api_gateway_url}")
+        api_result = api_client.notify_processing_result(
             task_id=task_id,
             success=True,
             bucket_name=Config.s3_bucket_name,
             file_keys=s3_files
         )
+        
+        if not api_result:
+            logger.warning(f"调用API Gateway失败，但PDF处理已完成，任务ID: {task_id}")
+            task_status[task_id]["api_gateway_notification"] = "failed"
+        else:
+            task_status[task_id]["api_gateway_notification"] = "success"
         
         logger.info(f"PDF处理完成，任务ID: {task_id}, 文件已上传到S3")
         
@@ -427,13 +492,16 @@ async def process_pdf_in_background(task_id: str, pdf_bytes: bytes, file_name: s
         task_status[task_id]["completed_at"] = time.time()
         
         # 调用API Gateway通知处理失败
-        api_client.notify_processing_result(
-            task_id=task_id,
-            success=False,
-            bucket_name=Config.s3_bucket_name,
-            file_keys=[],
-            error_message=error_message
-        )
+        try:
+            api_client.notify_processing_result(
+                task_id=task_id,
+                success=False,
+                bucket_name=Config.s3_bucket_name,
+                file_keys=[],
+                error_message=error_message
+            )
+        except Exception as api_error:
+            logger.error(f"调用API Gateway通知失败时出错，任务ID: {task_id}, 错误: {str(api_error)}")
     finally:
         # 清理临时文件
         try:
@@ -452,6 +520,47 @@ async def get_task_status(task_id: str):
         return task_status[task_id]
     else:
         raise HTTPException(status_code=404, detail="任务不存在")
+
+@app.get("/tasks")
+async def get_all_tasks():
+    """
+    获取所有任务的状态
+    
+    Returns:
+        所有任务的状态
+    """
+    # 获取队列信息
+    queue_info = {
+        "high_priority": priority_queue.high_priority.qsize(),
+        "normal_priority": priority_queue.normal_priority.qsize(),
+        "processing": len(gpu_task_queue.processing),
+        "max_concurrent": gpu_task_queue.max_concurrent
+    }
+    
+    # 获取任务状态
+    tasks_info = {}
+    for task_id, status in task_status.items():
+        # 复制状态信息，避免修改原始数据
+        task_info = status.copy()
+        
+        # 添加任务运行时间
+        if "started_at" in task_info and task_info["status"] == "processing":
+            task_info["running_time"] = time.time() - task_info["started_at"]
+        
+        # 添加任务等待时间
+        if "created_at" in task_info and task_info["status"] == "queued":
+            task_info["waiting_time"] = time.time() - task_info["created_at"]
+        
+        # 添加任务完成时间
+        if "completed_at" in task_info and "started_at" in task_info:
+            task_info["processing_time"] = task_info["completed_at"] - task_info["started_at"]
+        
+        tasks_info[task_id] = task_info
+    
+    return {
+        "queue_info": queue_info,
+        "tasks": tasks_info
+    }
 
 def get_gpu_memory_usage():
     try:
@@ -474,24 +583,60 @@ async def process_with_retry(task_id, max_retries=3):
 
 priority_queue = PriorityTaskQueue()
 
-gpu_task_queue = GPUTaskQueue()
+gpu_task_queue = GPUTaskQueue(max_concurrent=4)
 
 resource_monitor = ResourceMonitor()
 
 @app.on_event("startup")
 async def startup_event():
+    # 启动优先级队列处理器
     asyncio.create_task(process_priority_queue())
-    asyncio.create_task(gpu_task_queue.process_queue())
-    asyncio.create_task(resource_monitor.monitor())
+    logger.info("优先级队列处理器已启动")
+    
+    # 初始化任务状态字典
+    global task_status
+    task_status = {}
+    
+    logger.info("应用已启动")
 
 async def process_priority_queue():
+    """
+    处理优先级队列中的任务
+    先处理高优先级队列，再处理普通优先级队列
+    限制最大并发任务数
+    """
     while True:
-        # 先处理高优先级队列
-        if not priority_queue.high_priority.empty():
-            task_id, task_func = await priority_queue.high_priority.get()
-            await task_func()
-        # 再处理普通优先级队列
-        elif not priority_queue.normal_priority.empty():
-            task_id, task_func = await priority_queue.normal_priority.get()
-            await task_func()
+        # 检查是否有空闲的GPU资源
+        if len(gpu_task_queue.processing) < gpu_task_queue.max_concurrent:
+            # 先处理高优先级队列
+            if not priority_queue.high_priority.empty():
+                task_id, task_func = await priority_queue.high_priority.get()
+                logger.info(f"从高优先级队列获取任务，任务ID: {task_id}")
+                # 更新任务状态
+                if task_id in task_status:
+                    task_status[task_id]["status"] = "processing"
+                    task_status[task_id]["started_at"] = time.time()
+                # 将任务添加到GPU队列
+                await gpu_task_queue.add_task(task_id, task_func)
+            # 再处理普通优先级队列
+            elif not priority_queue.normal_priority.empty():
+                task_id, task_func = await priority_queue.normal_priority.get()
+                logger.info(f"从普通优先级队列获取任务，任务ID: {task_id}")
+                # 更新任务状态
+                if task_id in task_status:
+                    task_status[task_id]["status"] = "processing"
+                    task_status[task_id]["started_at"] = time.time()
+                # 将任务添加到GPU队列
+                await gpu_task_queue.add_task(task_id, task_func)
+        
+        # 记录队列状态
+        queue_info = {
+            "high_priority": priority_queue.high_priority.qsize(),
+            "normal_priority": priority_queue.normal_priority.qsize(),
+            "processing": len(gpu_task_queue.processing),
+            "max_concurrent": gpu_task_queue.max_concurrent
+        }
+        logger.debug(f"队列状态: {queue_info}")
+        
+        # 等待一段时间再检查
         await asyncio.sleep(0.1) 
