@@ -41,11 +41,11 @@ class GPUTaskQueue:
     async def estimate_task_memory(self, pdf_bytes: bytes) -> int:
         """
         预估任务所需的显存大小
-        可以根据PDF页数、大小等进行估算
+        基于PDF大小进行估算，使用更合理的系数
         """
-        # 这里需要根据实际情况实现预估逻辑
-        pdf_size = len(pdf_bytes)
-        estimated_memory = pdf_size * 0.1  # 示例：每字节预估0.1MB显存
+        pdf_size_mb = len(pdf_bytes) / (1024 * 1024)  # 转换为MB
+        # 基础显存 + PDF大小的2倍（考虑到模型处理时的中间结果）
+        estimated_memory = 2000 + (pdf_size_mb * 2)
         return int(estimated_memory)
     
     async def add_task(self, task_id, task_func, pdf_bytes: bytes = None):
