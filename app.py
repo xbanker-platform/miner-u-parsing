@@ -33,21 +33,51 @@ logger = logging.getLogger(__name__)
 task_status: Dict[str, Dict] = {}
 
 class GPUTaskQueue:
-    def __init__(self, max_concurrent=4):
+    def __init__(self, max_concurrent=6):
         self.max_concurrent = max_concurrent
         self.processing = {}  # 正在处理的任务，格式：{task_id: task_func}
+        self.resource_monitor = ResourceMonitor()
     
-    async def add_task(self, task_id, task_func):
+    async def estimate_task_memory(self, pdf_bytes: bytes) -> int:
+        """
+        预估任务所需的显存大小
+        可以根据PDF页数、大小等进行估算
+        """
+        # 这里需要根据实际情况实现预估逻辑
+        pdf_size = len(pdf_bytes)
+        estimated_memory = pdf_size * 0.1  # 示例：每字节预估0.1MB显存
+        return int(estimated_memory)
+    
+    async def add_task(self, task_id, task_func, pdf_bytes: bytes = None):
         """
         添加任务到GPU队列
         
         Args:
             task_id: 任务ID
             task_func: 任务函数
+            pdf_bytes: PDF文件内容，用于预估显存
         """
         if len(self.processing) >= self.max_concurrent:
             logger.warning(f"GPU队列已满，无法添加任务，任务ID: {task_id}")
             return False
+            
+        # 如果提供了PDF内容，预估显存需求
+        if pdf_bytes:
+            estimated_memory = await self.estimate_task_memory(pdf_bytes)
+            
+            # 检查当前显存是否足够
+            gpu_info = get_gpu_info()
+            if not gpu_info:
+                logger.error("无法获取GPU信息，拒绝任务")
+                return False
+                
+            available_memory = gpu_info['total'] - gpu_info['used']
+            if available_memory < estimated_memory:
+                logger.warning(f"显存不足，拒绝任务 {task_id}，需要 {estimated_memory}MB，可用 {available_memory}MB")
+                return False
+                
+            # 记录任务显存使用情况
+            self.resource_monitor.task_memory_usage[task_id] = estimated_memory
         
         # 添加任务到处理队列
         self.processing[task_id] = task_func
@@ -74,20 +104,71 @@ class GPUTaskQueue:
             # 从处理队列中移除任务
             if task_id in self.processing:
                 del self.processing[task_id]
+            # 清理任务显存记录
+            if task_id in self.resource_monitor.task_memory_usage:
+                del self.resource_monitor.task_memory_usage[task_id]
+
+def get_gpu_info():
+    try:
+        # 获取总显存
+        total_memory = subprocess.run(
+            ['nvidia-smi', '--query-gpu=memory.total', '--format=csv,nounits,noheader'],
+            capture_output=True, text=True
+        ).stdout.strip()
+        
+        # 获取已使用显存
+        used_memory = subprocess.run(
+            ['nvidia-smi', '--query-gpu=memory.used', '--format=csv,nounits,noheader'],
+            capture_output=True, text=True
+        ).stdout.strip()
+        
+        # 获取显存使用率
+        utilization = subprocess.run(
+            ['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,nounits,noheader'],
+            capture_output=True, text=True
+        ).stdout.strip()
+        
+        return {
+            'total': int(total_memory),
+            'used': int(used_memory),
+            'utilization': int(utilization),
+            'usage_percentage': (int(used_memory) / int(total_memory)) * 100
+        }
+    except Exception as e:
+        logger.error(f"获取GPU信息失败: {str(e)}")
+        return None
 
 class ResourceMonitor:
     def __init__(self):
-        self.gpu_threshold = 0.9  # 90% GPU使用率阈值
+        self.warning_threshold = 0.8  # 80%警告阈值
+        self.critical_threshold = 0.9  # 90%临界阈值
+        self.min_concurrent = 1  # 最小并发数
+        self.max_concurrent = 6  # 最大并发数
+        self.current_concurrent = 4  # 当前并发数
+        self.task_memory_usage = {}  # 记录每个任务的显存使用情况
         
     async def monitor(self):
         while True:
-            gpu_usage = get_gpu_memory_usage()
-            if gpu_usage > self.gpu_threshold:
-                # 减少并发任务数
-                gpu_task_queue.max_concurrent = max(1, gpu_task_queue.max_concurrent - 1)
-            else:
-                # 增加并发任务数
-                gpu_task_queue.max_concurrent = min(4, gpu_task_queue.max_concurrent + 1)
+            gpu_info = get_gpu_info()
+            if not gpu_info:
+                await asyncio.sleep(5)
+                continue
+                
+            usage_percentage = gpu_info['usage_percentage'] / 100
+            
+            # 根据使用率动态调整并发数
+            if usage_percentage > self.critical_threshold:
+                # 显存使用率过高，减少并发数
+                self.current_concurrent = max(self.min_concurrent, self.current_concurrent - 1)
+                logger.warning(f"GPU使用率过高 ({usage_percentage:.2%})，减少并发数至 {self.current_concurrent}")
+            elif usage_percentage < self.warning_threshold:
+                # 显存使用率较低，可以增加并发数
+                self.current_concurrent = min(self.max_concurrent, self.current_concurrent + 1)
+                logger.info(f"GPU使用率较低 ({usage_percentage:.2%})，增加并发数至 {self.current_concurrent}")
+            
+            # 更新GPU队列的最大并发数
+            gpu_task_queue.max_concurrent = self.current_concurrent
+            
             await asyncio.sleep(5)
 
 class PriorityTaskQueue:
@@ -287,15 +368,6 @@ async def order_pdf_processing(
     """
     接收PDF处理请求，立即返回任务ID，然后将任务放入队列中等待处理
     处理完成后，将结果上传到S3，并调用API Gateway通知处理结果
-    
-    Args:
-        file: 上传的PDF文件
-        ocr: 是否使用OCR
-        priority: 任务优先级
-        callback_url: 可选的回调URL
-        
-    Returns:
-        任务ID和状态
     """
     task_id = str(uuid.uuid4())
     pdf_bytes = await file.read()
@@ -309,7 +381,8 @@ async def order_pdf_processing(
         "file_name": file_name,
         "created_at": time.time(),
         "callback_url": callback_url,
-        "queue_position": priority_queue.get_queue_length(priority)
+        "queue_position": priority_queue.get_queue_length(priority),
+        "pdf_bytes": pdf_bytes  # 保存PDF内容用于显存预估
     }
     
     # 创建处理任务函数
@@ -583,7 +656,7 @@ async def process_with_retry(task_id, max_retries=3):
 
 priority_queue = PriorityTaskQueue()
 
-gpu_task_queue = GPUTaskQueue(max_concurrent=4)
+gpu_task_queue = GPUTaskQueue(max_concurrent=5)
 
 resource_monitor = ResourceMonitor()
 
@@ -616,8 +689,17 @@ async def process_priority_queue():
                 if task_id in task_status:
                     task_status[task_id]["status"] = "processing"
                     task_status[task_id]["started_at"] = time.time()
-                # 将任务添加到GPU队列
-                await gpu_task_queue.add_task(task_id, task_func)
+                    # 获取PDF内容用于显存预估
+                    pdf_bytes = task_status[task_id].get("pdf_bytes")
+                    # 将任务添加到GPU队列
+                    if await gpu_task_queue.add_task(task_id, task_func, pdf_bytes):
+                        logger.info(f"任务 {task_id} 已添加到GPU队列")
+                    else:
+                        # 如果显存不足，将任务重新放回队列
+                        await priority_queue.high_priority.put((task_id, task_func))
+                        logger.warning(f"任务 {task_id} 显存不足，重新放回队列")
+                        task_status[task_id]["status"] = "queued"
+                        task_status[task_id]["error"] = "显存不足，等待资源释放"
             # 再处理普通优先级队列
             elif not priority_queue.normal_priority.empty():
                 task_id, task_func = await priority_queue.normal_priority.get()
@@ -626,8 +708,17 @@ async def process_priority_queue():
                 if task_id in task_status:
                     task_status[task_id]["status"] = "processing"
                     task_status[task_id]["started_at"] = time.time()
-                # 将任务添加到GPU队列
-                await gpu_task_queue.add_task(task_id, task_func)
+                    # 获取PDF内容用于显存预估
+                    pdf_bytes = task_status[task_id].get("pdf_bytes")
+                    # 将任务添加到GPU队列
+                    if await gpu_task_queue.add_task(task_id, task_func, pdf_bytes):
+                        logger.info(f"任务 {task_id} 已添加到GPU队列")
+                    else:
+                        # 如果显存不足，将任务重新放回队列
+                        await priority_queue.normal_priority.put((task_id, task_func))
+                        logger.warning(f"任务 {task_id} 显存不足，重新放回队列")
+                        task_status[task_id]["status"] = "queued"
+                        task_status[task_id]["error"] = "显存不足，等待资源释放"
         
         # 记录队列状态
         queue_info = {
@@ -640,3 +731,20 @@ async def process_priority_queue():
         
         # 等待一段时间再检查
         await asyncio.sleep(0.1) 
+
+@app.get("/gpu_status")
+async def get_gpu_status():
+    """获取GPU状态信息"""
+    gpu_info = get_gpu_info()
+    if not gpu_info:
+        raise HTTPException(status_code=500, detail="无法获取GPU信息")
+        
+    return {
+        "gpu_info": gpu_info,
+        "task_queue": {
+            "current_concurrent": gpu_task_queue.resource_monitor.current_concurrent,
+            "max_concurrent": gpu_task_queue.max_concurrent,
+            "processing_tasks": len(gpu_task_queue.processing),
+            "task_memory_usage": gpu_task_queue.resource_monitor.task_memory_usage
+        }
+    } 
