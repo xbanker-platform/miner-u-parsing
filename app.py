@@ -616,6 +616,10 @@ async def get_all_tasks():
         # 复制状态信息，避免修改原始数据
         task_info = status.copy()
         
+        # 移除PDF内容
+        if "pdf_bytes" in task_info:
+            del task_info["pdf_bytes"]
+        
         # 添加任务运行时间
         if "started_at" in task_info and task_info["status"] == "processing":
             task_info["running_time"] = time.time() - task_info["started_at"]
