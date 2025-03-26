@@ -72,7 +72,9 @@ class GPUTaskQueue:
                 return False
                 
             available_memory = gpu_info['total'] - gpu_info['used']
-            if available_memory < estimated_memory:
+            
+            # 当当前任务数大于等于4时，才进行显存检查
+            if len(self.processing) >= 4 and available_memory < estimated_memory:
                 logger.warning(f"显存不足，拒绝任务 {task_id}，需要 {estimated_memory}MB，可用 {available_memory}MB")
                 return False
                 
