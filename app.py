@@ -55,31 +55,11 @@ class GPUTaskQueue:
         Args:
             task_id: 任务ID
             task_func: 任务函数
-            pdf_bytes: PDF文件内容，用于预估显存
+            pdf_bytes: PDF文件内容，用于任务记录
         """
         if len(self.processing) >= self.max_concurrent:
             logger.warning(f"GPU队列已满，无法添加任务，任务ID: {task_id}")
             return False
-            
-        # 如果提供了PDF内容，预估显存需求
-        if pdf_bytes:
-            estimated_memory = await self.estimate_task_memory(pdf_bytes)
-            
-            # 检查当前显存是否足够
-            gpu_info = get_gpu_info()
-            if not gpu_info:
-                logger.error("无法获取GPU信息，拒绝任务")
-                return False
-                
-            available_memory = gpu_info['total'] - gpu_info['used']
-            
-            # 当当前任务数大于等于4时，才进行显存检查
-            if len(self.processing) >= 4 and available_memory < estimated_memory:
-                logger.warning(f"显存不足，拒绝任务 {task_id}，需要 {estimated_memory}MB，可用 {available_memory}MB")
-                return False
-                
-            # 记录任务显存使用情况
-            self.resource_monitor.task_memory_usage[task_id] = estimated_memory
         
         # 添加任务到处理队列
         self.processing[task_id] = task_func
@@ -599,10 +579,10 @@ async def get_task_status(task_id: str):
 @app.get("/tasks")
 async def get_all_tasks():
     """
-    获取所有任务的状态
+    获取所有任务的状态，只返回主要信息和文件名
     
     Returns:
-        所有任务的状态
+        简化后的任务状态信息
     """
     # 获取队列信息
     queue_info = {
@@ -615,25 +595,30 @@ async def get_all_tasks():
     # 获取任务状态
     tasks_info = {}
     for task_id, status in task_status.items():
-        # 复制状态信息，避免修改原始数据
-        task_info = status.copy()
+        # 创建简化的任务信息
+        task_info = {
+            "file_name": status.get("file_name", "unknown"),
+            "status": status.get("status", "unknown"),
+            "priority": status.get("priority", "normal"),
+        }
         
-        # 移除PDF内容
-        if "pdf_bytes" in task_info:
-            del task_info["pdf_bytes"]
+        # 添加时间相关信息
+        if "created_at" in status:
+            task_info["created_at"] = status["created_at"]
+            
+        if "started_at" in status and status["status"] == "processing":
+            task_info["running_time"] = time.time() - status["started_at"]
+            
+        if "created_at" in status and status["status"] == "queued":
+            task_info["waiting_time"] = time.time() - status["created_at"]
+            
+        if "completed_at" in status and "started_at" in status:
+            task_info["processing_time"] = status["completed_at"] - status["started_at"]
         
-        # 添加任务运行时间
-        if "started_at" in task_info and task_info["status"] == "processing":
-            task_info["running_time"] = time.time() - task_info["started_at"]
-        
-        # 添加任务等待时间
-        if "created_at" in task_info and task_info["status"] == "queued":
-            task_info["waiting_time"] = time.time() - task_info["created_at"]
-        
-        # 添加任务完成时间
-        if "completed_at" in task_info and "started_at" in task_info:
-            task_info["processing_time"] = task_info["completed_at"] - task_info["started_at"]
-        
+        # 如果任务失败，添加错误信息
+        if status.get("status") == "failed" and "error" in status:
+            task_info["error"] = status["error"]
+            
         tasks_info[task_id] = task_info
     
     return {
@@ -662,8 +647,10 @@ async def process_with_retry(task_id, max_retries=3):
 
 priority_queue = PriorityTaskQueue()
 
-gpu_task_queue = GPUTaskQueue(max_concurrent=5)
+# 固定线程为4
+gpu_task_queue = GPUTaskQueue(max_concurrent=4)
 
+# 不再需要动态监控，但保留变量以避免引用错误
 resource_monitor = ResourceMonitor()
 
 @app.on_event("startup")
@@ -676,7 +663,10 @@ async def startup_event():
     global task_status
     task_status = {}
     
-    logger.info("应用已启动")
+    # 不再启动GPU监控
+    # asyncio.create_task(resource_monitor.monitor())
+    
+    logger.info("应用已启动，固定并发数为4")
 
 async def process_priority_queue():
     """
@@ -741,16 +731,13 @@ async def process_priority_queue():
 @app.get("/gpu_status")
 async def get_gpu_status():
     """获取GPU状态信息"""
-    gpu_info = get_gpu_info()
-    if not gpu_info:
-        raise HTTPException(status_code=500, detail="无法获取GPU信息")
-        
     return {
-        "gpu_info": gpu_info,
+        "gpu_info": {
+            "message": "GPU信息检查已禁用"
+        },
         "task_queue": {
-            "current_concurrent": gpu_task_queue.resource_monitor.current_concurrent,
             "max_concurrent": gpu_task_queue.max_concurrent,
             "processing_tasks": len(gpu_task_queue.processing),
-            "task_memory_usage": gpu_task_queue.resource_monitor.task_memory_usage
+            "task_memory_usage": {}  # 不再记录显存
         }
     } 
